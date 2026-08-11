@@ -59,10 +59,12 @@ src/marketlens/
 ├── models.py         # Pydantic v2 domain models (10 models)
 ├── catalog.py        # ProductCatalog with filtering
 ├── fixtures/         # 20-product electronics sample data
-├── retrieval/        # BM25, embedding, hybrid, reranker
+├── retrieval/        # BM25, embedding (fake + sentence-transformers), hybrid, reranker
 ├── agent/            # LangGraph workflow, FakeLLM, tools
 ├── api/              # FastAPI app, routes, SQLAlchemy
-└── evaluation/       # Benchmark metrics and reports
+└── evaluation/       # Benchmark metrics, 60-query eval set, 4-strategy comparison
+scripts/
+└── prepare_electronics_data.py  # Amazon Reviews 2023 data pipeline
 ```
 
 ## Running Tests
@@ -95,17 +97,50 @@ This project is built on [langchain-ai/open_deep_research](https://github.com/la
 
 See [docs/UPSTREAM_VS_MY_WORK.md](docs/UPSTREAM_VS_MY_WORK.md) for full comparison.
 
+## Data Pipeline
+
+```bash
+# Stream Amazon Electronics data (requires datasets package)
+uv pip install datasets
+uv run python scripts/prepare_electronics_data.py --max-products 2000 --seed 42
+
+# Dry run (validate pipeline without writing)
+uv run python scripts/prepare_electronics_data.py --dry-run
+```
+
+## Retrieval Benchmark
+
+```bash
+# Run 4-strategy comparison (fixture data, offline)
+uv run pytest tests/test_retrieval_comparison.py -v -s
+
+# Run with real embeddings (requires sentence-transformers)
+uv pip install sentence-transformers
+uv run python -c "
+from marketlens.catalog import ProductCatalog
+from marketlens.evaluation.retrieval_comparison import *
+catalog = ProductCatalog.from_fixture('electronics_sample.json')
+queries = build_eval_queries(catalog)
+reports = run_full_comparison(catalog, queries, use_real_embeddings=True)
+print(generate_markdown_report(reports, queries))
+"
+```
+
 ## Documentation
 
 | Document | Description |
 |----------|-------------|
 | [UPSTREAM_BASELINE.md](docs/UPSTREAM_BASELINE.md) | Original upstream capabilities, commit SHA, environment |
 | [ARCHITECTURE.md](docs/ARCHITECTURE.md) | System architecture, data flow, design decisions |
-| [UPSTREAM_VS_MY_WORK.md](docs/UPSTREAM_VS_MY_WORK.md) | Quantitative comparison: what upstream provides vs. what I built |
-| [EVALUATION_REPORT.md](docs/EVALUATION_REPORT.md) | Benchmark methodology, metrics, results |
+| [UPSTREAM_VS_MY_WORK.md](docs/UPSTREAM_VS_MY_WORK.md) | Quantitative comparison: upstream vs. my work |
+| [EVALUATION_REPORT.md](docs/EVALUATION_REPORT.md) | Benchmark methodology, metrics |
 | [IMPLEMENTATION_REPORT.md](docs/IMPLEMENTATION_REPORT.md) | Per-phase implementation details |
-| [LEARNING_GUIDE.md](docs/LEARNING_GUIDE.md) | 10 core files, request flow, 20 interview Q&A, 7-day plan |
+| [LEARNING_GUIDE.md](docs/LEARNING_GUIDE.md) | Core files, request flow, 20 interview Q&A, 7-day plan |
 | [DEMO_SCRIPT.md](docs/DEMO_SCRIPT.md) | Step-by-step demo walkthrough |
+| [PHASE6_IMPLEMENTATION_REPORT.md](docs/PHASE6_IMPLEMENTATION_REPORT.md) | Data pipeline, real embeddings, comparison framework |
+| [PHASE6_EVALUATION_REPORT.md](docs/PHASE6_EVALUATION_REPORT.md) | Phase 6 benchmark results (fixture) |
+| [PHASE6_LEARNING_GUIDE.md](docs/PHASE6_LEARNING_GUIDE.md) | BM25/embedding/RRF deep dive, 15 new interview Q&A |
+| [EVALUATION_ANNOTATION_GUIDE.md](docs/EVALUATION_ANNOTATION_GUIDE.md) | How to manually review eval queries |
 
 ## Environment Variables
 
