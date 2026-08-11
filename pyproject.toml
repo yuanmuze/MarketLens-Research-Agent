@@ -1,9 +1,10 @@
 [project]
-name = "open_deep_research"
-version = "0.0.16"
-description = "Planning, research, and report generation."
+name = "marketlens-research-agent"
+version = "0.1.0"
+description = "MarketLens Research Agent — vertical product research system for AI/electronics with evidence-grounded recommendations."
 authors = [
-    { name = "Lance Martin" }
+    { name = "Lance Martin" },
+    { name = "MarketLens Developer" },
 ]
 readme = "README.md"
 license = { text = "MIT" }
@@ -54,10 +55,12 @@ requires = ["setuptools>=73.0.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-packages = ["open_deep_research", "legacy", "tests"]
+packages = ["open_deep_research", "marketlens", "marketlens.retrieval", "legacy", "tests"]
 
 [tool.setuptools.package-dir]
 "open_deep_research" = "src/open_deep_research"
+"marketlens" = "src/marketlens"
+"marketlens.retrieval" = "src/marketlens/retrieval"
 "legacy" = "src/legacy"
 "tests" = "tests"
 
