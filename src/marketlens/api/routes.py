@@ -6,6 +6,8 @@ import logging
 import time
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query
 
@@ -26,56 +28,54 @@ from marketlens.api.models import (
     ResearchRequest as APIResearchRequest,
 )
 from marketlens.catalog import ProductCatalog
-from marketlens.models import SearchQuery, UserConstraints
-from marketlens.retrieval.hybrid import HybridRetriever
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-# Global catalog instance (initialized at app startup)
+# Global catalog and service (initialized at app startup)
 _catalog: ProductCatalog | None = None
-_retriever: HybridRetriever | None = None
+_service: Any = None  # RetrievalService
 
 
-def init_catalog(catalog: ProductCatalog) -> None:
-    """Initialize the global catalog and retriever.
+def init_catalog(
+    catalog: ProductCatalog,
+    *,
+    data_path: Path | None = None,
+) -> None:
+    """Initialize the global catalog and retrieval service.
 
     Args:
         catalog: ProductCatalog instance.
+        data_path: Path to product JSON (for embedding cache key).
     """
-    global _catalog, _retriever
+    global _catalog, _service
     _catalog = catalog
-    if len(catalog) > 0:
-        _retriever = HybridRetriever(catalog).fit()
+
+    from marketlens.retrieval.service import RetrievalService
+    _service = RetrievalService(catalog, data_path=data_path)
+    _service.initialize()
+
+
+def get_service() -> Any:
+    """Get the global RetrievalService instance.
+
+    Returns:
+        RetrievalService instance.
+
+    Raises:
+        HTTPException: If not initialized.
+    """
+    if _service is None:
+        raise HTTPException(status_code=500, detail="Retrieval service not initialized")
+    return _service
 
 
 def get_catalog() -> ProductCatalog:
-    """Get the global catalog instance.
-
-    Returns:
-        ProductCatalog instance.
-
-    Raises:
-        HTTPException: If catalog not initialized.
-    """
+    """Get the global catalog instance."""
     if _catalog is None:
         raise HTTPException(status_code=500, detail="Catalog not initialized")
     return _catalog
-
-
-def get_retriever() -> HybridRetriever:
-    """Get the global retriever instance.
-
-    Returns:
-        HybridRetriever instance.
-
-    Raises:
-        HTTPException: If retriever not initialized.
-    """
-    if _retriever is None:
-        raise HTTPException(status_code=500, detail="Retriever not initialized")
-    return _retriever
 
 
 # ---------------------------------------------------------------------------
@@ -98,51 +98,46 @@ async def health_check() -> HealthResponse:
 @router.get("/search", response_model=SearchResponse)
 async def search_products(
     q: str = Query(..., min_length=1, description="Search query"),
+    strategy: str = Query(default="hybrid", description="Strategy: bm25, embedding, hybrid, rerank"),
     top_k: int = Query(default=20, ge=1, le=100, description="Max results"),
+    candidate_k: int = Query(default=50, ge=1, le=200, description="Candidates for reranker"),
     max_budget: float | None = Query(default=None, ge=0, description="Max price"),
+    min_price: float | None = Query(default=None, ge=0, description="Min price"),
     min_rating: float | None = Query(default=None, ge=0, le=5, description="Min rating"),
-    brand: str | None = Query(default=None, description="Brand filter"),
-    use_reranker: bool = Query(default=False, description="Enable reranker"),
+    brand: str | None = Query(default=None, description="Exact brand filter"),
 ) -> SearchResponse:
-    """Search the product catalog.
+    """Search the product catalog using the specified retrieval strategy.
 
-    Returns ranked product results with scores and evidence metadata.
+    Supports four strategies: bm25, embedding, hybrid, rerank.
+    Structured filters: brand, price range, rating.
     """
     request_id = f"req-{uuid.uuid4().hex[:12]}"
-    t0 = time.monotonic()
 
     try:
-        _ = get_catalog()  # Verify catalog is initialized
-        retriever = get_retriever()
+        service = get_service()
     except HTTPException:
         raise
     except Exception as e:
         logger.error("Search initialization error: %s", e)
         raise HTTPException(status_code=500, detail="Search service unavailable")
 
-    # Build constraints
-    filters = UserConstraints()
-    if max_budget is not None:
-        filters.max_budget = max_budget
-    if min_rating is not None:
-        filters.min_rating = min_rating
-    if brand:
-        filters.preferred_brands = [brand]
-
-    query_obj = SearchQuery(
-        text=q,
-        top_k=top_k,
-        filters=filters,
-        use_reranker=use_reranker,
-    )
-
     try:
-        results = retriever.search(query_obj)
+        output = service.search(
+            query=q,
+            strategy=strategy,
+            top_k=top_k,
+            candidate_k=candidate_k,
+            max_budget=max_budget,
+            min_price=min_price,
+            max_price=max_budget,
+            min_rating=min_rating,
+            brand=brand,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
         logger.error("Search error: %s", e)
         raise HTTPException(status_code=500, detail=f"Search failed: {e}")
-
-    elapsed_ms = (time.monotonic() - t0) * 1000
 
     # Persist search query
     try:
@@ -150,9 +145,9 @@ async def search_products(
         record = SearchQueryRecord(
             query=q,
             top_k=top_k,
-            result_count=len(results),
-            duration_ms=elapsed_ms,
-            source="hybrid",
+            result_count=output.total_found,
+            duration_ms=output.elapsed_ms,
+            source=output.strategy,
         )
         session.add(record)
         session.commit()
@@ -161,17 +156,17 @@ async def search_products(
 
     items = [
         SearchResultItem(
-            rank=r.rank,
-            product_id=r.product.product_id,
-            title=r.product.title,
-            brand=r.product.brand,
-            price=r.product.price,
-            rating=r.product.rating,
-            review_count=r.product.review_count,
-            score=round(r.score, 4),
-            source=r.source,
+            rank=item.rank,
+            product_id=item.product_id,
+            title=item.title,
+            brand=item.brand,
+            price=item.price,
+            rating=item.rating,
+            review_count=item.review_count,
+            score=item.final_score,
+            source=output.strategy,
         )
-        for r in results
+        for item in output.results
     ]
 
     return SearchResponse(
@@ -179,7 +174,7 @@ async def search_products(
         query=q,
         results=items,
         total_results=len(items),
-        duration_ms=round(elapsed_ms, 2),
+        duration_ms=output.elapsed_ms,
     )
 
 

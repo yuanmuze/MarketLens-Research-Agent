@@ -95,6 +95,7 @@ lint.ignore = [
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["D", "UP"]
 "src/marketlens/evaluation/benchmark.py" = ["T201"]
+"scripts/demo_retrieval.py" = ["T201", "D"]
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"

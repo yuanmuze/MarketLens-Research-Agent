@@ -29,14 +29,20 @@ async def lifespan(app: FastAPI):
     init_db()
     logger.info("Database initialized")
 
-    # Load default catalog
+    # Load default catalog — prefer real data, fall back to fixture
+    real_data_path = Path("data/processed/electronics_2000.json")
     fixture_path = Path(__file__).parent.parent / "fixtures" / "electronics_sample.json"
-    if fixture_path.exists():
+
+    if real_data_path.exists():
+        catalog = ProductCatalog.from_json(real_data_path)
+        init_catalog(catalog, data_path=real_data_path)
+        logger.info("Loaded %d products from %s", len(catalog), real_data_path)
+    elif fixture_path.exists():
         catalog = ProductCatalog.from_fixture("electronics_sample.json")
         init_catalog(catalog)
         logger.info("Loaded %d products from fixture", len(catalog))
     else:
-        logger.warning("No catalog fixture found at %s", fixture_path)
+        logger.warning("No catalog data found")
         init_catalog(ProductCatalog())
 
     yield
