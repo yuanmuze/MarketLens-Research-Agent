@@ -469,6 +469,110 @@ class TestDataPipeline:
         assert manifest["raw_products_read"] == 100
         assert manifest["cleaned_products_output"] == 80
 
+    def test_manifest_local_file_records_compression(self) -> None:
+        """Verify manifest records local file and compression info."""
+        import argparse
+        from pathlib import Path
+
+        from scripts.prepare_electronics_data import generate_manifest
+
+        args = argparse.Namespace(
+            seed=42, max_products=500, local_file=Path("/tmp/test.jsonl.gz"),
+            output=Path("/tmp/out.json"), dry_run=False,
+        )
+        manifest = generate_manifest(
+            args, raw_count=100, cleaned_count=80,
+            skip_stats={"total_skipped": 20},
+            output_path=Path("/tmp/out.json"),
+            elapsed_s=1.5,
+            is_local=True, compression="gzip",
+        )
+
+        assert manifest["source_type"] == "local_file (compression=gzip)"
+        assert manifest["source_url"] == str(Path("/tmp/test.jsonl.gz"))
+        assert manifest["streaming"] is False
+
+    def test_load_from_local_gzip(self, tmp_path: Path) -> None:
+        """Test loading from a gzip-compressed local JSONL file."""
+        import gzip
+        import json
+
+        from scripts.prepare_electronics_data import load_from_local
+
+        # Create temp gzip JSONL
+        lines = [
+            {"parent_asin": "B001", "title": "Product 1", "price": 10.0},
+            {"parent_asin": "B002", "title": "Product 2", "price": 20.0},
+            {"parent_asin": "B003", "title": "Product 3", "price": 30.0},
+        ]
+        gz_path = tmp_path / "test.jsonl.gz"
+        with gzip.open(gz_path, mode="wt", encoding="utf-8") as f:
+            for obj in lines:
+                f.write(json.dumps(obj) + "\n")
+
+        result = load_from_local(gz_path, max_products=10, seed=42)
+        assert len(result) == 3
+        assert result[0]["parent_asin"] == "B001" or result[1]["parent_asin"] == "B001"
+
+    def test_load_from_local_plain_unchanged(self, tmp_path: Path) -> None:
+        """Test that plain (uncompressed) JSONL still works after gzip support."""
+        import json
+
+        from scripts.prepare_electronics_data import load_from_local
+
+        plain_path = tmp_path / "test.jsonl"
+        lines = [{"parent_asin": f"B{i}", "title": f"P{i}"} for i in range(5)]
+        with open(plain_path, "w", encoding="utf-8") as f:
+            for obj in lines:
+                f.write(json.dumps(obj) + "\n")
+
+        result = load_from_local(plain_path, max_products=10, seed=42)
+        assert len(result) == 5
+
+    def test_load_from_local_same_seed_deterministic(self, tmp_path: Path) -> None:
+        """Test that same seed produces identical results for gzip files."""
+        import gzip
+        import json
+
+        from scripts.prepare_electronics_data import load_from_local
+
+        gz_path = tmp_path / "test.jsonl.gz"
+        lines = [{"parent_asin": f"B{i:03d}", "title": f"Product {i}"} for i in range(20)]
+        with gzip.open(gz_path, mode="wt", encoding="utf-8") as f:
+            for obj in lines:
+                f.write(json.dumps(obj) + "\n")
+
+        result1 = load_from_local(gz_path, max_products=5, seed=42)
+        result2 = load_from_local(gz_path, max_products=5, seed=42)
+        # Same seed should produce identical output
+        assert [r["parent_asin"] for r in result1] == [r["parent_asin"] for r in result2]
+
+    def test_load_from_local_stops_at_max(self, tmp_path: Path) -> None:
+        """Test that load_from_local stops at max_products for gzip files."""
+        import gzip
+        import json
+
+        from scripts.prepare_electronics_data import load_from_local
+
+        gz_path = tmp_path / "test.jsonl.gz"
+        lines = [{"parent_asin": f"B{i:03d}", "title": f"Product {i}"} for i in range(100)]
+        with gzip.open(gz_path, mode="wt", encoding="utf-8") as f:
+            for obj in lines:
+                f.write(json.dumps(obj) + "\n")
+
+        result = load_from_local(gz_path, max_products=5, seed=42)
+        assert len(result) == 5
+
+    def test_load_from_local_corrupt_gzip_clear_error(self, tmp_path: Path) -> None:
+        """Test that corrupt gzip file produces a clear error, not a crash."""
+        from scripts.prepare_electronics_data import load_from_local
+
+        bad_path = tmp_path / "bad.jsonl.gz"
+        bad_path.write_bytes(b"\x1f\x8b\x00\x00\x00\x00\x00\xff\xff\xff")  # truncated gzip
+
+        with pytest.raises(OSError):
+            load_from_local(bad_path, max_products=5, seed=42)
+
 
 class TestMetrics:
     """Additional tests for retrieval metrics."""

@@ -125,7 +125,10 @@ class SentenceTransformersBackend(EmbeddingBackend):
         if self._model is None:
             self._load_model()
         assert self._model is not None, "Model failed to load"
-        return self._model.get_sentence_embedding_dimension()
+        try:
+            return self._model.get_sentence_embedding_dimension()
+        except AttributeError:
+            return self._model.get_embedding_dimension()
 
     @property
     def model_info(self) -> dict[str, str | int]:
@@ -151,9 +154,13 @@ class SentenceTransformersBackend(EmbeddingBackend):
             from sentence_transformers import SentenceTransformer
 
             self._model = SentenceTransformer(self._model_name)
+            try:
+                dim = self._model.get_sentence_embedding_dimension()
+            except AttributeError:
+                dim = self._model.get_embedding_dimension()
             logger.info(
                 "Loaded sentence-transformers model: %s (dim=%d)",
-                self._model_name, self._model.get_sentence_embedding_dimension(),
+                self._model_name, dim,
             )
         except ImportError as exc:
             raise ImportError(

@@ -175,8 +175,22 @@ def generate_manifest(
     skip_stats: dict[str, int],
     output_path: Path,
     elapsed_s: float,
+    *,
+    is_local: bool = False,
+    compression: str = "none",
 ) -> dict[str, Any]:
-    """Generate a data manifest with provenance info."""
+    """Generate a data manifest with provenance info.
+
+    Args:
+        args: Parsed CLI arguments.
+        raw_count: Number of raw items read from source.
+        cleaned_count: Number of valid products output.
+        skip_stats: Counts of records skipped by reason.
+        output_path: Path to the output JSON file.
+        elapsed_s: Processing time in seconds.
+        is_local: Whether the source was a local file.
+        compression: Compression type (gzip or none).
+    """
     sha256 = ""
     if output_path.exists():
         sha256 = hashlib.sha256(output_path.read_bytes()).hexdigest()
@@ -189,13 +203,22 @@ def generate_manifest(
     except ImportError:
         pass
 
+    if is_local:
+        source_type = f"local_file (compression={compression})"
+        source_url = str(args.local_file)
+        streaming = False
+    else:
+        source_type = "UCSD official (.jsonl.gz) via HuggingFace datasets json builder"
+        source_url = OFFICIAL_METADATA_URL
+        streaming = True
+
     return {
         "source": "Amazon Reviews 2023 Electronics metadata",
-        "source_url": OFFICIAL_METADATA_URL,
-        "source_type": "UCSD official (.jsonl.gz) via HuggingFace datasets json builder",
+        "source_url": source_url,
+        "source_type": source_type,
         "category": "Electronics",
         "datasets_version": datasets_version,
-        "streaming": True,
+        "streaming": streaming,
         "shuffle_buffer_size": SHUFFLE_BUFFER_SIZE,
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "seed": args.seed,
@@ -338,11 +361,33 @@ def load_from_huggingface(max_products: int, seed: int) -> list[dict[str, Any]]:
     return []
 
 
-def load_from_local(path: Path, max_products: int, seed: int) -> list[dict[str, Any]]:
-    """Load product metadata from a local JSONL file.
+def _is_gzip_file(path: Path) -> bool:
+    """Check whether a file is gzip-compressed by reading its magic bytes.
+
+    Pure magic-byte detection (0x1f 0x8b), independent of file extension.
 
     Args:
-        path: Path to local JSONL file.
+        path: Filesystem path to check.
+
+    Returns:
+        True if the file starts with the gzip magic bytes.
+    """
+    try:
+        with open(path, "rb") as f:
+            return f.read(2) == b"\x1f\x8b"
+    except OSError:
+        return False
+
+
+def load_from_local(path: Path, max_products: int, seed: int) -> list[dict[str, Any]]:
+    """Load product metadata from a local JSONL file (.jsonl or .jsonl.gz).
+
+    Detects gzip compression via magic bytes (0x1f 0x8b), not file extension.
+    Streams line-by-line — never loads the full file into memory or
+    decompresses to disk.
+
+    Args:
+        path: Path to local file (.jsonl or .jsonl.gz).
         max_products: Maximum number of products.
         seed: Random seed for shuffling.
 
@@ -351,20 +396,42 @@ def load_from_local(path: Path, max_products: int, seed: int) -> list[dict[str, 
     """
     import random
 
-    logger.info("Loading from local file: %s", path)
-    items = []
-    with open(path, encoding="utf-8") as f:
-        for line in f:
+    is_gzip = _is_gzip_file(path)
+    compression = "gzip" if is_gzip else "none"
+
+    logger.info(
+        "Loading from local file: %s (compression=%s)", path, compression,
+    )
+
+    items: list[dict[str, Any]] = []
+
+    if is_gzip:
+        import gzip
+        fh: Any = gzip.open(path, mode="rt", encoding="utf-8")
+    else:
+        fh = open(path, encoding="utf-8")
+
+    try:
+        for line in fh:
+            line = line.strip()
+            if not line:
+                continue
             try:
-                items.append(json.loads(line.strip()))
+                items.append(json.loads(line))
             except json.JSONDecodeError:
                 continue
             if len(items) >= max_products * 10:  # Read more than needed for shuffle
                 break
+    finally:
+        fh.close()
 
     random.seed(seed)
     random.shuffle(items)
-    return items[:max_products]
+    result = items[:max_products]
+    logger.info(
+        "Loaded %d raw items from local file (compression=%s)", len(result), compression,
+    )
+    return result
 
 
 def main() -> None:
@@ -408,10 +475,14 @@ def main() -> None:
     t0 = time.monotonic()
 
     # Step 1: Load data
-    if args.local_file:
+    is_local = args.local_file is not None
+    local_compression = "none"
+    if is_local:
         raw_items = load_from_local(args.local_file, args.max_products, args.seed)
+        local_compression = "gzip" if _is_gzip_file(args.local_file) else "none"
     else:
         raw_items = load_from_huggingface(args.max_products, args.seed)
+        local_compression = "none"
 
     raw_count = len(raw_items)
     if raw_count == 0:
@@ -469,6 +540,7 @@ def main() -> None:
         elapsed = time.monotonic() - t0
         manifest = generate_manifest(
             args, raw_count, len(products), skip_stats, args.output, elapsed,
+            is_local=is_local, compression=local_compression,
         )
         manifest_path = args.output.parent / "electronics_manifest.json"
         with open(manifest_path, "w", encoding="utf-8") as f:
