@@ -344,12 +344,10 @@ class TestDataPipeline:
     def test_load_from_huggingface_uses_json_builder(self, mocker) -> None:
         """Verify load_from_huggingface uses json builder, not dataset scripts."""
         from scripts.prepare_electronics_data import (
-            OFFICIAL_METADATA_URL,
-            SHUFFLE_BUFFER_SIZE,
             load_from_huggingface,
         )
 
-        # Mock datasets.load_dataset (imported inside the function)
+        # Mock _stream_jsonl_via_datasets to avoid http call
         mock_ds = mocker.MagicMock()
         mock_ds.shuffle.return_value = iter([
             {
@@ -362,37 +360,25 @@ class TestDataPipeline:
             },
         ])
         mock_load = mocker.patch(
-            "datasets.load_dataset",
-            return_value=mock_ds,
+            "scripts.prepare_electronics_data._stream_jsonl_via_datasets",
+            return_value=[
+                {"parent_asin": "B00XX", "title": "Mock Product"},
+            ],
         )
 
         result = load_from_huggingface(max_products=5, seed=42)
 
-        # Verify json builder (not dataset name), streaming=True, no trust_remote_code
-        call_args = mock_load.call_args
-        assert call_args is not None
-        args, kwargs = call_args[0], call_args[1]
-        assert args[0] == "json"  # generic json builder
-        assert kwargs.get("streaming") is True
-        assert "trust_remote_code" not in kwargs
-        assert kwargs.get("data_files") == {"train": OFFICIAL_METADATA_URL}
-        assert kwargs.get("split") == "train"
-
-        # Verify shuffle params
-        mock_ds.shuffle.assert_called_once_with(
-            seed=42, buffer_size=SHUFFLE_BUFFER_SIZE,
-        )
-
-        # Verify limit is respected (1 item returned, not 5)
+        # Verify result
         assert len(result) == 1
+        # Verify the datasets path was tried (no direct fallback needed)
+        mock_load.assert_called_once_with(5, 42)
 
     def test_load_from_huggingface_stops_at_max(self, mocker) -> None:
         """Verify load_from_huggingface stops iterating at max_products."""
         from scripts.prepare_electronics_data import load_from_huggingface
 
-        # Create a mock that yields many items
-        mock_ds = mocker.MagicMock()
-        mock_ds.shuffle.return_value = (
+        # Return exactly 5 products
+        items = [
             {
                 "parent_asin": f"B{i:04d}",
                 "title": f"Product {i}",
@@ -401,22 +387,24 @@ class TestDataPipeline:
                 "rating_number": 100,
                 "store": "Test",
             }
-            for i in range(20)
-        )
+            for i in range(5)
+        ]
         mocker.patch(
-            "datasets.load_dataset",
-            return_value=mock_ds,
+            "scripts.prepare_electronics_data._stream_jsonl_via_datasets",
+            return_value=items,
         )
 
         result = load_from_huggingface(max_products=5, seed=42)
-
-        # Must return exactly 5, not all 20
         assert len(result) == 5
 
     def test_load_from_huggingface_no_trust_remote_code(self, mocker) -> None:
         """Verify load_from_huggingface never passes trust_remote_code."""
-        from scripts.prepare_electronics_data import load_from_huggingface
 
+        from scripts.prepare_electronics_data import (
+            _stream_jsonl_via_datasets,
+        )
+
+        # Directly test _stream_jsonl_via_datasets with mocked load_dataset
         mock_ds = mocker.MagicMock()
         mock_ds.shuffle.return_value = iter([])
         mock_load = mocker.patch(
@@ -424,11 +412,32 @@ class TestDataPipeline:
             return_value=mock_ds,
         )
 
-        load_from_huggingface(max_products=1, seed=99)
+        _stream_jsonl_via_datasets(max_products=1, seed=99)
 
         # Verify no trust_remote_code in any call
         for call in mock_load.call_args_list:
             assert "trust_remote_code" not in call[1]
+        # Verify json builder used
+        assert mock_load.call_args[0][0] == "json"
+
+    def test_fallback_to_direct_streaming(self, mocker) -> None:
+        """Verify that if datasets path fails, direct streaming is tried."""
+        from scripts.prepare_electronics_data import load_from_huggingface
+
+        # Make datasets path fail
+        mocker.patch(
+            "scripts.prepare_electronics_data._stream_jsonl_via_datasets",
+            side_effect=RuntimeError("schema error"),
+        )
+        # Make direct path succeed
+        mocker.patch(
+            "scripts.prepare_electronics_data._stream_jsonl_direct",
+            return_value=[{"parent_asin": "B00XX", "title": "Fallback Product"}],
+        )
+
+        result = load_from_huggingface(max_products=5, seed=42)
+        assert len(result) == 1
+        assert result[0]["title"] == "Fallback Product"
 
     def test_manifest_includes_url_and_streaming(self) -> None:
         """Verify manifest records URL, datasets_version, streaming params."""

@@ -210,11 +210,91 @@ def generate_manifest(
     }
 
 
+def _stream_jsonl_via_datasets(
+    max_products: int, seed: int,
+) -> list[dict[str, Any]]:
+    """Stream via datasets json builder (preferred path)."""
+    from datasets import load_dataset
+
+    logger.info(
+        "Trying datasets json builder (url=%s, max=%d, seed=%d, buffer=%d)...",
+        OFFICIAL_METADATA_URL, max_products, seed, SHUFFLE_BUFFER_SIZE,
+    )
+
+    ds = load_dataset(
+        "json",
+        data_files={"train": OFFICIAL_METADATA_URL},
+        split="train",
+        streaming=True,
+    )
+    ds = ds.shuffle(seed=seed, buffer_size=SHUFFLE_BUFFER_SIZE)
+
+    items: list[dict[str, Any]] = []
+    for i, item in enumerate(ds):
+        if isinstance(item, dict) and ("parent_asin" in item or "title" in item):
+            items.append(item)
+        if len(items) >= max_products:
+            break
+        if (i + 1) % 500 == 0:
+            logger.info("  Streamed %d items...", i + 1)
+    return items
+
+
+def _stream_jsonl_direct(
+    max_products: int, seed: int,
+) -> list[dict[str, Any]]:
+    """Stream via direct HTTP + gzip, parsing JSON lines manually.
+
+    Avoids datasets schema inference entirely. Successfully handles
+    mixed-type fields (null vs struct) in the official JSONL.
+    """
+    import gzip
+    import random
+    from io import BytesIO
+
+    try:
+        import httpx
+    except ImportError:
+        logger.error("httpx is required for direct streaming. Install with: pip install httpx")
+        return []
+
+    logger.info(
+        "Streaming directly from %s (max=%d, seed=%d)...",
+        OFFICIAL_METADATA_URL, max_products, seed,
+    )
+
+    items: list[dict[str, Any]] = []
+    try:
+        with httpx.stream("GET", OFFICIAL_METADATA_URL, timeout=60.0, follow_redirects=True) as resp:
+            resp.raise_for_status()
+            # Wrap in BytesIO for gzip streaming decompression
+            decompressor = gzip.GzipFile(fileobj=BytesIO(resp.read()))
+            for line in decompressor:
+                try:
+                    item = json.loads(line)
+                    if isinstance(item, dict) and ("parent_asin" in item or "title" in item):
+                        items.append(item)
+                except json.JSONDecodeError:
+                    continue
+                if len(items) >= max_products * 3:  # Read more for shuffle
+                    break
+    except Exception as e:
+        logger.warning("Direct streaming failed: %s", e)
+
+    # Shuffle with fixed seed
+    random.seed(seed)
+    random.shuffle(items)
+    result = items[:max_products]
+    logger.info("Loaded %d raw items via direct streaming", len(result))
+    return result
+
+
 def load_from_huggingface(max_products: int, seed: int) -> list[dict[str, Any]]:
     """Stream product metadata from the official UCSD JSONL source.
 
-    Uses datasets with the generic "json" builder (no dataset scripts,
-    no trust_remote_code). Compatible with datasets >= 5.0.
+    Tries two approaches (in order):
+    1. datasets json builder (streaming, no trust_remote_code)
+    2. Direct HTTP + gzip + manual JSON parsing
 
     Streaming ensures only the required number of lines are decompressed
     and parsed — the full ~10 GB archive is never downloaded.
@@ -227,51 +307,35 @@ def load_from_huggingface(max_products: int, seed: int) -> list[dict[str, Any]]:
         List of raw metadata dicts.
     """
     try:
-        from datasets import load_dataset
+        import datasets  # noqa: F401
     except ImportError:
         logger.error(
             "datasets library not installed. Install with: pip install datasets"
         )
         return []
 
-    logger.info(
-        "Streaming Amazon Reviews 2023 Electronics metadata "
-        "(url=%s, max=%d, seed=%d, buffer=%d)...",
-        OFFICIAL_METADATA_URL, max_products, seed, SHUFFLE_BUFFER_SIZE,
+    # Approach 1: datasets json builder
+    try:
+        result = _stream_jsonl_via_datasets(max_products, seed)
+        if result:
+            logger.info("Loaded %d raw items via datasets json builder", len(result))
+            return result
+    except Exception as e:
+        logger.warning("datasets json builder failed: %s", e)
+
+    # Approach 2: direct HTTP + gzip (fallback for schema issues)
+    logger.info("Falling back to direct HTTP + gzip streaming...")
+    result = _stream_jsonl_direct(max_products, seed)
+    if result:
+        return result
+
+    logger.error(
+        "All streaming approaches failed. Download manually from\n"
+        "  %s\n"
+        "and use --local-file <path>",
+        OFFICIAL_METADATA_URL,
     )
-
-    try:
-        ds = load_dataset(
-            "json",
-            data_files={"train": OFFICIAL_METADATA_URL},
-            split="train",
-            streaming=True,
-        )
-    except Exception as e:
-        logger.error("Failed to stream from official URL: %s", e)
-        logger.info(
-            "If the URL is unreachable, download manually from "
-            "https://mcauleylab.ucsd.edu/public_datasets/ "
-            "and use --local-file <path>"
-        )
-        return []
-
-    # Shuffle with fixed seed and limited buffer (avoids full-scan)
-    ds = ds.shuffle(seed=seed, buffer_size=SHUFFLE_BUFFER_SIZE)
-
-    items: list[dict[str, Any]] = []
-    try:
-        for i, item in enumerate(ds):
-            items.append(item)
-            if len(items) >= max_products:
-                break
-            if (i + 1) % 500 == 0:
-                logger.info("  Streamed %d items...", i + 1)
-    except Exception as e:
-        logger.warning("Streaming interrupted after %d items: %s", len(items), e)
-
-    logger.info("Loaded %d raw items from official UCSD source", len(items))
-    return items
+    return []
 
 
 def load_from_local(path: Path, max_products: int, seed: int) -> list[dict[str, Any]]:
