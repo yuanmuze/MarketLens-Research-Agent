@@ -91,33 +91,70 @@ class FakeEmbeddingBackend(EmbeddingBackend):
 class SentenceTransformersBackend(EmbeddingBackend):
     """Optional sentence-transformers based embedding backend.
 
+    Uses all-MiniLM-L6-v2 by default: 384-dimensional embeddings,
+    lightweight (~80MB), runs on CPU. Suitable for development and
+    small production workloads.
+
     Requires: pip install sentence-transformers
     """
 
-    def __init__(self, model_name: str = "all-MiniLM-L6-v2") -> None:
+    def __init__(
+        self,
+        model_name: str = "all-MiniLM-L6-v2",
+        batch_size: int = 32,
+        normalize: bool = True,
+    ) -> None:
         """Initialize with a sentence-transformers model.
 
         Args:
             model_name: HuggingFace model name (default all-MiniLM-L6-v2).
+            batch_size: Batch size for encoding (default 32).
+            normalize: Whether to L2-normalize output vectors (default True).
         """
         self._model_name = model_name
         self._model: Any = None  # SentenceTransformer | None
+        self.batch_size = batch_size
+        self.normalize = normalize
 
     @property
     def dim(self) -> int:
-        """Embedding dimension."""
+        """Embedding dimension.
+
+        Returns: 384 for default all-MiniLM-L6-v2.
+        """
         if self._model is None:
             self._load_model()
         assert self._model is not None, "Model failed to load"
         return self._model.get_sentence_embedding_dimension()
 
+    @property
+    def model_info(self) -> dict[str, str | int]:
+        """Return model metadata for record-keeping.
+
+        Returns:
+            Dict with model_name, dim, backend_type.
+        """
+        return {
+            "backend_type": "sentence-transformers",
+            "model_name": self._model_name,
+            "dim": self.dim,
+            "batch_size": self.batch_size,
+        }
+
     def _load_model(self) -> None:
-        """Lazy-load the sentence-transformers model."""
+        """Lazy-load the sentence-transformers model.
+
+        Raises:
+            ImportError: If sentence-transformers is not installed.
+        """
         try:
             from sentence_transformers import SentenceTransformer
 
             self._model = SentenceTransformer(self._model_name)
-            logger.info("Loaded sentence-transformers model: %s", self._model_name)
+            logger.info(
+                "Loaded sentence-transformers model: %s (dim=%d)",
+                self._model_name, self._model.get_sentence_embedding_dimension(),
+            )
         except ImportError as exc:
             raise ImportError(
                 "sentence-transformers is not installed. "
@@ -127,16 +164,25 @@ class SentenceTransformersBackend(EmbeddingBackend):
     def encode(self, texts: list[str]) -> np.ndarray:
         """Encode texts using the sentence-transformers model.
 
+        Uses batch encoding for memory efficiency on large text lists.
+        All vectors are L2-normalized for cosine similarity computation.
+
         Args:
-            texts: List of text strings.
+            texts: List of text strings to encode.
 
         Returns:
-            NumPy array of shape (len(texts), dim).
+            NumPy array of shape (len(texts), dim), float32, L2-normalized.
         """
         if self._model is None:
             self._load_model()
         assert self._model is not None, "Model failed to load"
-        return self._model.encode(texts, normalize_embeddings=True, show_progress_bar=False)
+        return self._model.encode(
+            texts,
+            batch_size=self.batch_size,
+            normalize_embeddings=self.normalize,
+            show_progress_bar=len(texts) > 100,
+            convert_to_numpy=True,
+        )
 
 
 class EmbeddingRetriever:
