@@ -1,8 +1,12 @@
 #!/usr/bin/env python3
 """Prepare a small sample of Amazon Reviews 2023 Electronics metadata.
 
-Streams from HuggingFace datasets or reads from a local file. Produces
-a validated, deduplicated JSON file suitable for ProductCatalog.from_json().
+Streams from the official UCSD JSONL source via HuggingFace datasets
+(json builder, no remote script execution) or reads from a local file.
+Produces a validated, deduplicated JSON file suitable for
+ProductCatalog.from_json().
+
+Compatible with datasets >= 5.0 (no trust_remote_code, no dataset scripts).
 
 Usage:
   # Default: ~2000 products, seed 42
@@ -13,6 +17,9 @@ Usage:
 
   # Dry run (validate only, no output)
   uv run python scripts/prepare_electronics_data.py --dry-run
+
+  # From local file
+  uv run python scripts/prepare_electronics_data.py --local-file /path/to/data.jsonl
 
 Output:
   data/processed/electronics_products.json
@@ -38,6 +45,14 @@ logger = logging.getLogger(__name__)
 DEFAULT_SEED = 42
 DEFAULT_MAX_PRODUCTS = 2000
 MAX_PRODUCTS_LIMIT = 5000
+SHUFFLE_BUFFER_SIZE = 10000
+
+# Official UCSD URL for Amazon Reviews 2023 Electronics metadata
+# Source: https://mcauleylab.ucsd.edu/public_datasets/
+OFFICIAL_METADATA_URL = (
+    "https://mcauleylab.ucsd.edu/public_datasets/data/amazon_2023/"
+    "raw/meta_categories/meta_Electronics.jsonl.gz"
+)
 
 # --- Field mapping from Amazon metadata to Product model ---
 # Amazon metadata schema (v2023):
@@ -166,9 +181,22 @@ def generate_manifest(
     if output_path.exists():
         sha256 = hashlib.sha256(output_path.read_bytes()).hexdigest()
 
+    # Detect datasets version if available
+    datasets_version = "unknown"
+    try:
+        import datasets
+        datasets_version = datasets.__version__
+    except ImportError:
+        pass
+
     return {
-        "source": "Amazon Reviews 2023 (McAuley-Lab via HuggingFace datasets)",
+        "source": "Amazon Reviews 2023 Electronics metadata",
+        "source_url": OFFICIAL_METADATA_URL,
+        "source_type": "UCSD official (.jsonl.gz) via HuggingFace datasets json builder",
         "category": "Electronics",
+        "datasets_version": datasets_version,
+        "streaming": True,
+        "shuffle_buffer_size": SHUFFLE_BUFFER_SIZE,
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "seed": args.seed,
         "max_products_target": args.max_products,
@@ -183,10 +211,13 @@ def generate_manifest(
 
 
 def load_from_huggingface(max_products: int, seed: int) -> list[dict[str, Any]]:
-    """Stream product metadata from HuggingFace datasets.
+    """Stream product metadata from the official UCSD JSONL source.
 
-    Uses streaming mode to avoid downloading the full dataset.
-    Only reads the metadata (not reviews).
+    Uses datasets with the generic "json" builder (no dataset scripts,
+    no trust_remote_code). Compatible with datasets >= 5.0.
+
+    Streaming ensures only the required number of lines are decompressed
+    and parsed — the full ~10 GB archive is never downloaded.
 
     Args:
         max_products: Maximum number of products to extract.
@@ -204,39 +235,42 @@ def load_from_huggingface(max_products: int, seed: int) -> list[dict[str, Any]]:
         return []
 
     logger.info(
-        "Streaming Amazon Reviews 2023 Electronics metadata (max=%d, seed=%d)...",
-        max_products, seed,
+        "Streaming Amazon Reviews 2023 Electronics metadata "
+        "(url=%s, max=%d, seed=%d, buffer=%d)...",
+        OFFICIAL_METADATA_URL, max_products, seed, SHUFFLE_BUFFER_SIZE,
     )
 
     try:
-        # Stream only the metadata, not reviews
         ds = load_dataset(
-            "McAuley-Lab/Amazon-Reviews-2023",
-            "raw_meta_Electronics",
-            split="full",
+            "json",
+            data_files={"train": OFFICIAL_METADATA_URL},
+            split="train",
             streaming=True,
-            trust_remote_code=True,
         )
     except Exception as e:
-        logger.error("Failed to load dataset from HuggingFace: %s", e)
+        logger.error("Failed to stream from official URL: %s", e)
         logger.info(
-            "Try downloading manually from: "
-            "https://huggingface.co/datasets/McAuley-Lab/Amazon-Reviews-2023"
+            "If the URL is unreachable, download manually from "
+            "https://mcauleylab.ucsd.edu/public_datasets/ "
+            "and use --local-file <path>"
         )
         return []
 
-    # Shuffle with fixed seed
-    ds = ds.shuffle(seed=seed, buffer_size=10000)
+    # Shuffle with fixed seed and limited buffer (avoids full-scan)
+    ds = ds.shuffle(seed=seed, buffer_size=SHUFFLE_BUFFER_SIZE)
 
-    items = []
-    for i, item in enumerate(ds):
-        items.append(item)
-        if len(items) >= max_products:
-            break
-        if (i + 1) % 500 == 0:
-            logger.info("  Streamed %d items...", i + 1)
+    items: list[dict[str, Any]] = []
+    try:
+        for i, item in enumerate(ds):
+            items.append(item)
+            if len(items) >= max_products:
+                break
+            if (i + 1) % 500 == 0:
+                logger.info("  Streamed %d items...", i + 1)
+    except Exception as e:
+        logger.warning("Streaming interrupted after %d items: %s", len(items), e)
 
-    logger.info("Loaded %d raw items from HuggingFace", len(items))
+    logger.info("Loaded %d raw items from official UCSD source", len(items))
     return items
 
 

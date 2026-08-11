@@ -50,7 +50,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["mypy>=1.11.1", "ruff>=0.6.1"]
+dev = ["mypy>=1.11.1", "ruff>=0.6.1", "pytest-mock>=3.12.0"]
 embeddings = ["sentence-transformers>=2.2.0"]
 data = ["datasets>=2.14.0"]
 
@@ -98,3 +98,9 @@ lint.ignore = [
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"
+
+[tool.mypy]
+ignore_missing_imports = true
+follow_imports = "skip"
+python_version = "3.11"
+files = ["src/marketlens"]

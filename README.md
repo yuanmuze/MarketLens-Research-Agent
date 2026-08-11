@@ -17,10 +17,9 @@ MarketLens is a vertical product research system demonstrating AI Application, A
 # Clone and install
 git clone <this-repo>
 cd MarketLens-Research-Agent
-uv sync --python 3.11
-uv pip install mypy ruff
+uv sync --python 3.11 --extra dev --extra data
 
-# Run all tests (166 tests, 0 API keys needed)
+# Run all tests (193 tests, 0 API keys needed)
 uv run pytest tests/ -q --ignore=tests/extract_langsmith_data.py
 
 # Start the API
@@ -99,13 +98,22 @@ See [docs/UPSTREAM_VS_MY_WORK.md](docs/UPSTREAM_VS_MY_WORK.md) for full comparis
 
 ## Data Pipeline
 
+Uses the official UCSD Amazon Reviews 2023 JSONL source via HuggingFace
+`datasets` (json builder, `streaming=True`). No `trust_remote_code`, no
+dataset scripts. Compatible with `datasets >= 5.0`.
+
 ```bash
-# Stream Amazon Electronics data (requires datasets package)
-uv pip install datasets
+# Install data dependency
+uv sync --extra data
+
+# Stream Electronics metadata (~2000 products, seed 42)
 uv run python scripts/prepare_electronics_data.py --max-products 2000 --seed 42
 
 # Dry run (validate pipeline without writing)
 uv run python scripts/prepare_electronics_data.py --dry-run
+
+# From local file
+uv run python scripts/prepare_electronics_data.py --local-file /path/to/meta_Electronics.jsonl.gz
 ```
 
 ## Retrieval Benchmark

@@ -283,10 +283,7 @@ class TestDataPipeline:
 
     def test_price_cleaning(self) -> None:
         """Test price normalization."""
-        # We test the underlying clean functions via the build_product function
-        from scripts.prepare_electronics_data import (
-            clean_price,
-        )
+        from scripts.prepare_electronics_data import clean_price
 
         assert clean_price(None) is None
         assert clean_price("") is None
@@ -343,6 +340,125 @@ class TestDataPipeline:
         assert product["rating"] == 4.5
         assert product["review_count"] == 1000
         assert len(product["attributes"]) >= 2
+
+    def test_load_from_huggingface_uses_json_builder(self, mocker) -> None:
+        """Verify load_from_huggingface uses json builder, not dataset scripts."""
+        from scripts.prepare_electronics_data import (
+            OFFICIAL_METADATA_URL,
+            SHUFFLE_BUFFER_SIZE,
+            load_from_huggingface,
+        )
+
+        # Mock datasets.load_dataset (imported inside the function)
+        mock_ds = mocker.MagicMock()
+        mock_ds.shuffle.return_value = iter([
+            {
+                "parent_asin": "B00XX",
+                "title": "Mock Product",
+                "price": "49.99",
+                "average_rating": 4.0,
+                "rating_number": 100,
+                "store": "MockBrand",
+            },
+        ])
+        mock_load = mocker.patch(
+            "datasets.load_dataset",
+            return_value=mock_ds,
+        )
+
+        result = load_from_huggingface(max_products=5, seed=42)
+
+        # Verify json builder (not dataset name), streaming=True, no trust_remote_code
+        call_args = mock_load.call_args
+        assert call_args is not None
+        args, kwargs = call_args[0], call_args[1]
+        assert args[0] == "json"  # generic json builder
+        assert kwargs.get("streaming") is True
+        assert "trust_remote_code" not in kwargs
+        assert kwargs.get("data_files") == {"train": OFFICIAL_METADATA_URL}
+        assert kwargs.get("split") == "train"
+
+        # Verify shuffle params
+        mock_ds.shuffle.assert_called_once_with(
+            seed=42, buffer_size=SHUFFLE_BUFFER_SIZE,
+        )
+
+        # Verify limit is respected (1 item returned, not 5)
+        assert len(result) == 1
+
+    def test_load_from_huggingface_stops_at_max(self, mocker) -> None:
+        """Verify load_from_huggingface stops iterating at max_products."""
+        from scripts.prepare_electronics_data import load_from_huggingface
+
+        # Create a mock that yields many items
+        mock_ds = mocker.MagicMock()
+        mock_ds.shuffle.return_value = (
+            {
+                "parent_asin": f"B{i:04d}",
+                "title": f"Product {i}",
+                "price": 10.0 + i,
+                "average_rating": 4.0,
+                "rating_number": 100,
+                "store": "Test",
+            }
+            for i in range(20)
+        )
+        mocker.patch(
+            "datasets.load_dataset",
+            return_value=mock_ds,
+        )
+
+        result = load_from_huggingface(max_products=5, seed=42)
+
+        # Must return exactly 5, not all 20
+        assert len(result) == 5
+
+    def test_load_from_huggingface_no_trust_remote_code(self, mocker) -> None:
+        """Verify load_from_huggingface never passes trust_remote_code."""
+        from scripts.prepare_electronics_data import load_from_huggingface
+
+        mock_ds = mocker.MagicMock()
+        mock_ds.shuffle.return_value = iter([])
+        mock_load = mocker.patch(
+            "datasets.load_dataset",
+            return_value=mock_ds,
+        )
+
+        load_from_huggingface(max_products=1, seed=99)
+
+        # Verify no trust_remote_code in any call
+        for call in mock_load.call_args_list:
+            assert "trust_remote_code" not in call[1]
+
+    def test_manifest_includes_url_and_streaming(self) -> None:
+        """Verify manifest records URL, datasets_version, streaming params."""
+        import argparse
+        from pathlib import Path
+
+        from scripts.prepare_electronics_data import (
+            OFFICIAL_METADATA_URL,
+            SHUFFLE_BUFFER_SIZE,
+            generate_manifest,
+        )
+
+        args = argparse.Namespace(
+            seed=42, max_products=2000, local_file=None,
+            output=Path("/tmp/test.json"), dry_run=False,
+        )
+        manifest = generate_manifest(
+            args, raw_count=100, cleaned_count=80,
+            skip_stats={"total_skipped": 20},
+            output_path=Path("/tmp/test.json"),
+            elapsed_s=1.5,
+        )
+
+        assert manifest["source_url"] == OFFICIAL_METADATA_URL
+        assert manifest["streaming"] is True
+        assert manifest["shuffle_buffer_size"] == SHUFFLE_BUFFER_SIZE
+        assert "datasets_version" in manifest
+        assert manifest["seed"] == 42
+        assert manifest["raw_products_read"] == 100
+        assert manifest["cleaned_products_output"] == 80
 
 
 class TestMetrics:
