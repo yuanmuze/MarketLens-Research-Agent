@@ -1,0 +1,53 @@
+name: MarketLens CI
+
+on:
+  push:
+    branches: [main, "feat/*"]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install uv
+        run: pip install uv
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Run ruff linting
+        run: uv run ruff check src/marketlens/ tests/
+
+      - name: Run pytest
+        run: uv run pytest tests/ -v --ignore=tests/extract_langsmith_data.py --ignore=tests/run_evaluate.py --ignore=tests/supervisor_parallel_evaluation.py --ignore=tests/pairwise_evaluation.py --ignore=tests/evaluators.py --ignore=tests/prompts.py
+
+      - name: Run evaluation benchmark
+        run: uv run pytest tests/test_evaluation.py -v
+
+  docker-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate docker-compose config
+        run: |
+          python -c "
+          import yaml
+          with open('docker-compose.yml') as f:
+              config = yaml.safe_load(f)
+          assert 'services' in config
+          assert 'api' in config['services']
+          assert 'db' in config['services']
+          print('docker-compose.yml is valid')
+          "
