@@ -64,3 +64,16 @@ All settings configurable via:
 - Direct configuration modification
 
 Key settings include model selection, search API choice, concurrency limits, and MCP server configurations.
+## MarketLens autonomous execution
+
+- This is an implementation task, not a planning-only task.
+- Inspect the repository and begin implementation immediately.
+- Continue through all milestones without waiting for approval.
+- Make routine engineering decisions independently.
+- Fix ordinary errors and rerun verification automatically.
+- Run tests, linting, and type checking after changes.
+- Create milestone-based local Git commits.
+- Ask only for irreversible data loss, unavailable credentials, payment, remote deployment, or a material requirement conflict.
+- Never push, rewrite Git history, read secrets, or modify the old MarketLens projects.
+- Use offline fakes when external APIs are unavailable.
+- Never claim an unexecuted test or benchmark succeeded.
