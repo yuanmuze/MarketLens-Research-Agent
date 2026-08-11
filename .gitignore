@@ -66,5 +66,20 @@ node_modules/
 tmp/
 temp/
 
+# Database files
+*.db
+*.sqlite3
+
+# Model cache
+models--*
+.sentence_transformers_cache/
+
+# Large data files
+*.parquet
+*.jsonl
+!src/marketlens/fixtures/*.jsonl
+data/raw/
+data/processed/
+
 .langgraph_api
 .claude/settings.local.json

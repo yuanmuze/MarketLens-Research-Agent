@@ -138,7 +138,7 @@ class FakeLLM:
             evidence_list.append(evidence)
 
         # Sort by relevance
-        evidence_list.sort(key=lambda e: e["relevance_score"], reverse=True)
+        evidence_list.sort(key=lambda e: float(e["relevance_score"]), reverse=True)  # type: ignore[arg-type]
         return evidence_list
 
     def compare_products(
@@ -173,7 +173,7 @@ class FakeLLM:
                 "recommendation_score": min(10, max(1, round(score * 10))),
             })
 
-        comparisons.sort(key=lambda c: c["recommendation_score"], reverse=True)
+        comparisons.sort(key=lambda c: float(c["recommendation_score"]), reverse=True)  # type: ignore[arg-type]
         return comparisons
 
     def validate_constraints(

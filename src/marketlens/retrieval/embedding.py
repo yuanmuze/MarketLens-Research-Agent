@@ -7,6 +7,7 @@ sentence-transformers implementation is available as an optional backend.
 
 import logging
 from abc import ABC, abstractmethod
+from typing import Any
 
 import numpy as np
 
@@ -100,13 +101,14 @@ class SentenceTransformersBackend(EmbeddingBackend):
             model_name: HuggingFace model name (default all-MiniLM-L6-v2).
         """
         self._model_name = model_name
-        self._model = None
+        self._model: Any = None  # SentenceTransformer | None
 
     @property
     def dim(self) -> int:
         """Embedding dimension."""
         if self._model is None:
             self._load_model()
+        assert self._model is not None, "Model failed to load"
         return self._model.get_sentence_embedding_dimension()
 
     def _load_model(self) -> None:
@@ -133,6 +135,7 @@ class SentenceTransformersBackend(EmbeddingBackend):
         """
         if self._model is None:
             self._load_model()
+        assert self._model is not None, "Model failed to load"
         return self._model.encode(texts, normalize_embeddings=True, show_progress_bar=False)
 
 

@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """Extract data from LangSmith and save to JSONL file with configurable dataset."""
 
-import os
-import json
 import argparse
-from langsmith import Client
+import json
+import os
+
 from dotenv import load_dotenv
+from langsmith import Client
 
 load_dotenv()
 

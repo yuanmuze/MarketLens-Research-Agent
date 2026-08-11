@@ -222,21 +222,21 @@ async def submit_research(request: APIResearchRequest) -> ResearchSubmitResponse
         result = await run_research(request.query, catalog, request_id)
         elapsed_ms = (time.monotonic() - t0) * 1000
 
-        # Update job record
-        record.status = "completed"
-        record.completed_at = datetime.now(timezone.utc)
-        record.duration_ms = elapsed_ms
-        record.report_text = result.get("final_report", "")
-        record.product_count = len(result.get("products", []))
-        record.tool_calls = result.get("tool_calls", 0)
-        record.evidence_count = len(result.get("evidence", []))
-        record.constraints_satisfied = 1 if result.get("constraints_satisfied") else 0
+        # Update job record (values cast for SQLAlchemy Column compatibility)
+        record.status = "completed"  # type: ignore[assignment]
+        record.completed_at = datetime.now(timezone.utc)  # type: ignore[assignment]
+        record.duration_ms = elapsed_ms  # type: ignore[assignment]
+        record.report_text = str(result.get("final_report", ""))  # type: ignore[assignment]
+        record.product_count = len(result.get("products", []))  # type: ignore[assignment]
+        record.tool_calls = int(result.get("tool_calls", 0))  # type: ignore[assignment]
+        record.evidence_count = len(result.get("evidence", []))  # type: ignore[assignment]
+        record.constraints_satisfied = 1 if result.get("constraints_satisfied") else 0  # type: ignore[assignment]
         session.commit()
 
     except Exception as e:
         logger.error("Research execution error: %s", e, exc_info=True)
-        record.status = "failed"
-        record.error_message = str(e)
+        record.status = "failed"  # type: ignore[assignment]
+        record.error_message = str(e)  # type: ignore[assignment]
         session.commit()
         raise HTTPException(status_code=500, detail=f"Research failed: {e}")
 
@@ -307,18 +307,19 @@ async def get_job_status(job_id: str) -> ResearchJobResponse:
     if record is None:
         raise HTTPException(status_code=404, detail=f"Job not found: {job_id}")
 
+    # Extract typed values from SQLAlchemy columns for Pydantic
     return ResearchJobResponse(
-        job_id=record.job_id,
-        request_id=record.request_id,
-        status=record.status,
-        query=record.query,
-        created_at=record.created_at,
-        started_at=record.started_at,
-        completed_at=record.completed_at,
-        duration_ms=record.duration_ms,
-        product_count=record.product_count,
-        tool_calls=record.tool_calls or 0,
-        error_message=record.error_message,
+        job_id=str(record.job_id),
+        request_id=str(record.request_id),
+        status=str(record.status),
+        query=str(record.query),
+        created_at=record.created_at,  # type: ignore[arg-type]
+        started_at=record.started_at,  # type: ignore[arg-type]
+        completed_at=record.completed_at,  # type: ignore[arg-type]
+        duration_ms=float(record.duration_ms) if record.duration_ms is not None else None,
+        product_count=int(record.product_count) if record.product_count is not None else None,
+        tool_calls=int(record.tool_calls or 0),
+        error_message=str(record.error_message) if record.error_message is not None else None,
     )
 
 
@@ -350,14 +351,17 @@ async def get_job_report(job_id: str) -> ResearchReportResponse:
             detail=f"Job not completed. Current status: {record.status}",
         )
 
+    duration = float(record.duration_ms) if record.duration_ms is not None else 0.0
+    product_n = int(record.product_count) if record.product_count is not None else 0
+
     return ResearchReportResponse(
-        job_id=record.job_id,
-        query=record.query,
-        summary=f"Research completed in {record.duration_ms:.0f}ms. Found {record.product_count or 0} products.",
+        job_id=str(record.job_id),
+        query=str(record.query),
+        summary=f"Research completed in {duration:.0f}ms. Found {product_n} products.",
         recommendations=[],
         comparisons=[],
         evidence=[],
         constraints_satisfied=bool(record.constraints_satisfied),
-        generated_at=record.completed_at or datetime.now(timezone.utc),
-        report_text=record.report_text or "",
+        generated_at=record.completed_at or datetime.now(timezone.utc),  # type: ignore[arg-type]
+        report_text=str(record.report_text or ""),
     )

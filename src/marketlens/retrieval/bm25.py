@@ -79,19 +79,19 @@ class BM25Retriever:
 
         # Compute document frequencies
         self._doc_freqs = []
-        df: dict[str, int] = {}
+        df_counts: dict[str, int] = {}
         for tokens in tokenized:
             freq: dict[str, int] = {}
             for token in tokens:
                 freq[token] = freq.get(token, 0) + 1
             self._doc_freqs.append(freq)
             for token in set(tokens):
-                df[token] = df.get(token, 0) + 1
+                df_counts[token] = df_counts.get(token, 0) + 1
 
         # Compute IDF
         self._idf = {}
-        for term, freq in df.items():
-            idf = math.log((self._num_docs - freq + 0.5) / (freq + 0.5) + 1.0) + self.epsilon
+        for term, freq_val in df_counts.items():
+            idf = math.log((self._num_docs - freq_val + 0.5) / (freq_val + 0.5) + 1.0) + self.epsilon
             self._idf[term] = max(idf, self.epsilon)
 
         self._is_fitted = True

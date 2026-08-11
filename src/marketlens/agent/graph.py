@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 from typing import Any, Literal
 
 from langgraph.graph import END, START, StateGraph
+from langgraph.graph.state import CompiledStateGraph
 
 from marketlens.agent.fake_llm import FakeLLM
 from marketlens.agent.state import AgentInputState, AgentState
@@ -40,7 +41,7 @@ TOOL_TIMEOUT_S = 30
 def build_research_graph(
     catalog: ProductCatalog,
     use_fake_llm: bool = True,
-) -> StateGraph:
+) -> CompiledStateGraph[AgentState, None, AgentInputState, AgentState]:
     """Build the MarketLens research agent LangGraph.
 
     Args:
@@ -236,10 +237,10 @@ def build_research_graph(
                     prod = next((p for p in products if p.product_id == pid), None)
                     if prod is None:
                         continue
-                    ev = evidence_map.get(pid, [])
+                    ev_item: ProductEvidence | None = evidence_map.get(pid)
                     comp = ComparisonItem(
                         product=prod,
-                        evidence=[ev] if isinstance(ev, ProductEvidence) else ev,
+                        evidence=[ev_item] if ev_item is not None else [],
                         pros=rc.get("pros", []),
                         cons=rc.get("cons", []),
                         recommendation_score=rc.get("recommendation_score", 5.0),
@@ -248,10 +249,10 @@ def build_research_graph(
             else:
                 # Basic comparison without LLM
                 for product in products[:10]:
-                    ev = evidence_map.get(product.product_id)
+                    ev_item2: ProductEvidence | None = evidence_map.get(product.product_id)
                     comp = ComparisonItem(
                         product=product,
-                        evidence=[ev] if ev else [],
+                        evidence=[ev_item2] if ev_item2 is not None else [],
                         pros=[],
                         cons=[],
                         recommendation_score=float(product.rating or 5),
