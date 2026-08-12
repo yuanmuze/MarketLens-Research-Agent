@@ -33,11 +33,38 @@ from marketlens.retrieval.embedding import (
     FakeEmbeddingBackend,
     SentenceTransformersBackend,
 )
-from marketlens.retrieval.reranker import KeywordReranker
+from marketlens.retrieval.reranker import (
+    CrossEncoderReranker,
+    KeywordReranker,
+    Reranker,
+)
 
 logger = logging.getLogger(__name__)
 
 CACHE_DIR = Path("data/cache")
+
+# Schema version — bump when _build_search_text logic changes
+TEXT_SCHEMA_VERSION = "v1"
+
+
+def _compute_data_hash(data_path: Path) -> str:
+    """Compute SHA256 of the data file content for cache fingerprinting.
+
+    Args:
+        data_path: Path to the products JSON file.
+
+    Returns:
+        First 16 hex chars of the SHA256 hash.
+    """
+    chunk_size = 1 << 20  # 1 MB chunks
+    h = hashlib.sha256()
+    with open(data_path, "rb") as f:
+        while True:
+            chunk = f.read(chunk_size)
+            if not chunk:
+                break
+            h.update(chunk)
+    return h.hexdigest()[:16]
 
 
 @dataclass
@@ -128,22 +155,30 @@ def _build_search_text(product: dict[str, Any]) -> str:
 def _embedding_cache_path(
     data_path: Path,
     model_name: str,
+    product_count: int,
+    embedding_dim: int,
 ) -> Path:
-    """Derive a cache path from data file + model name.
+    """Derive a cache path from data content + model + schema.
 
-    Uses SHA256 of the data path + model name to produce a stable
-    cache key that auto-invalidates when either changes.
+    Cache is invalidated when any of these change:
+      - Data file content (SHA256)
+      - Model name
+      - Text schema version
+      - Product count
+      - Embedding dimension
 
     Args:
         data_path: Path to the product JSON file.
         model_name: Embedding model identifier.
+        product_count: Number of products.
+        embedding_dim: Embedding vector dimension.
 
     Returns:
         Cache file path (.npy).
     """
-    key = hashlib.sha256(
-        f"{data_path.resolve()}:{model_name}".encode()
-    ).hexdigest()[:16]
+    data_hash = _compute_data_hash(data_path)
+    fingerprint = f"{data_hash}:{model_name}:{TEXT_SCHEMA_VERSION}:{product_count}:{embedding_dim}"
+    key = hashlib.sha256(fingerprint.encode()).hexdigest()[:16]
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
     return CACHE_DIR / f"embeddings_{key}.npy"
 
@@ -171,13 +206,21 @@ class RetrievalService:
         *,
         data_path: Path | None = None,
         embedding_backend: EmbeddingBackend | None = None,
+        use_fake_embeddings: bool = False,
+        reranker: Reranker | None = None,
     ) -> None:
         """Create the retrieval service.
 
         Args:
             catalog: Product catalog.
             data_path: Path to product JSON (used for cache key derivation).
-            embedding_backend: Embedding backend. If None, uses FakeEmbeddingBackend.
+            embedding_backend: Pre-constructed embedding backend.
+                If None, tries real model unless use_fake_embeddings=True.
+            use_fake_embeddings: Explicitly use FakeEmbeddingBackend for
+                tests/demos. When False and embedding_backend is None,
+                a real SentenceTransformer is required.
+            reranker: Reranker instance. Defaults to CrossEncoderReranker.
+                Use FakeReranker/KeywordReranker for tests.
         """
         self._catalog = catalog
         self._data_path = data_path
@@ -186,11 +229,14 @@ class RetrievalService:
         self._product_index = {str(p["product_id"]): p for p in self._product_dicts}
         self._search_texts = [_build_search_text(p) for p in self._product_dicts]
 
-        # Backends — initialized lazily
+        # Backends
         self._bm25: BM25Retriever | None = None
         self._embedding: EmbeddingRetriever | None = None
         self._embedding_backend = embedding_backend
+        self._use_fake_embeddings = use_fake_embeddings
+        self._reranker: Reranker | None = reranker
         self._is_initialized = False
+        self._embedding_cache_hit = False
 
     # ------------------------------------------------------------------
     # Initialization
@@ -232,38 +278,24 @@ class RetrievalService:
     def _init_embeddings(self) -> None:
         """Initialize embedding backend and retriever, loading cache if available."""
         if len(self._product_dicts) == 0:
-            # Empty catalog — create minimal backend
             if self._embedding_backend is None:
                 self._embedding_backend = FakeEmbeddingBackend(dim=8, seed=0)
             self._embedding = EmbeddingRetriever(self._embedding_backend).fit(["empty"], ["__empty__"])
             return
 
+        # Select backend
         if self._embedding_backend is None:
-            # Try real model first, fall back to fake
-            self._embedding_backend = self._create_real_backend()
+            if self._use_fake_embeddings:
+                self._embedding_backend = FakeEmbeddingBackend(dim=128, seed=42)
+                logger.info("Using fake embedding (explicitly requested)")
+            else:
+                self._embedding_backend = self._create_real_backend()
 
-        # Try to load from cache
+        # Try cache for real backends
         if self._data_path and isinstance(self._embedding_backend, SentenceTransformersBackend):
-            cache_path = _embedding_cache_path(
-                self._data_path, self._embedding_backend._model_name
-            )
-            meta_path = _cache_metadata_path(cache_path)
-            if cache_path.exists() and meta_path.exists():
-                logger.info("Loading embedding cache from %s", cache_path)
-                try:
-                    cached = np.load(str(cache_path))
-                    meta = json.loads(meta_path.read_text(encoding="utf-8"))
-                    if meta.get("count") == len(self._product_dicts) and cached.shape[1] == self._embedding_backend.dim:
-                        self._embedding = EmbeddingRetriever(self._embedding_backend)
-                        self._embedding._doc_ids = [str(p["product_id"]) for p in self._product_dicts]
-                        self._embedding._embeddings = cached
-                        self._embedding._is_fitted = True
-                        logger.info("Loaded %d cached embeddings (%d-dim)", len(cached), cached.shape[1])
-                        return
-                    else:
-                        logger.info("Cache mismatch (count or dim), recomputing")
-                except Exception as e:
-                    logger.warning("Failed to load cache: %s. Recomputing.", e)
+            self._try_load_cache()
+            if self._embedding is not None:
+                return
 
         # Compute fresh
         logger.info("Computing embeddings for %d products...", len(self._product_dicts))
@@ -272,28 +304,91 @@ class RetrievalService:
             [str(p["product_id"]) for p in self._product_dicts],
         )
 
-        # Save cache if real backend
+        # Save cache
         if self._data_path and isinstance(self._embedding_backend, SentenceTransformersBackend):
-            cache_path = _embedding_cache_path(
-                self._data_path, self._embedding_backend._model_name
-            )
-            meta_path = _cache_metadata_path(cache_path)
-            if self._embedding._embeddings is not None:
-                np.save(str(cache_path), self._embedding._embeddings)
-                meta_path.write_text(json.dumps({
-                    "model_name": self._embedding_backend._model_name,
-                    "dim": self._embedding_backend.dim,
-                    "count": len(self._product_dicts),
-                    "created": str(time.time()),
-                }), encoding="utf-8")
-                logger.info("Embedding cache saved to %s", cache_path)
+            self._save_cache()
+
+    def _try_load_cache(self) -> None:
+        """Try to load embedding cache from disk. Sets self._embedding on success."""
+        if self._data_path is None or not isinstance(self._embedding_backend, SentenceTransformersBackend):
+            return
+
+        dim = self._embedding_backend.dim
+        n = len(self._product_dicts)
+        cache_path = _embedding_cache_path(
+            self._data_path, self._embedding_backend._model_name, n, dim,
+        )
+        meta_path = _cache_metadata_path(cache_path)
+
+        if not cache_path.exists() or not meta_path.exists():
+            logger.info("No existing cache found at %s", cache_path)
+            return
+
+        logger.info("Loading embedding cache from %s", cache_path)
+        try:
+            cached = np.load(str(cache_path))
+            meta = json.loads(meta_path.read_text(encoding="utf-8"))
+
+            # Validate shape, dtype, count
+            errors = []
+            if meta.get("count") != n:
+                errors.append(f"count {meta.get('count')} != {n}")
+            if cached.shape[1] != dim:
+                errors.append(f"dim {cached.shape[1]} != {dim}")
+            if cached.dtype != np.float32:
+                errors.append(f"dtype {cached.dtype} != float32")
+            if cached.shape[0] != n:
+                errors.append(f"rows {cached.shape[0]} != {n}")
+
+            if errors:
+                logger.warning("Cache validation failed: %s. Recomputing.", "; ".join(errors))
+                return
+
+            self._embedding = EmbeddingRetriever(self._embedding_backend)
+            self._embedding._doc_ids = [str(p["product_id"]) for p in self._product_dicts]
+            self._embedding._embeddings = cached
+            self._embedding._is_fitted = True
+            self._embedding_cache_hit = True
+            logger.info("Loaded %d cached embeddings (%d-dim)", len(cached), cached.shape[1])
+        except Exception as e:
+            logger.warning("Failed to load cache: %s. Recomputing.", e)
+
+    def _save_cache(self) -> None:
+        """Save computed embeddings to disk with metadata."""
+        if self._data_path is None or self._embedding is None or self._embedding._embeddings is None:
+            return
+        if not isinstance(self._embedding_backend, SentenceTransformersBackend):
+            return
+
+        dim = self._embedding_backend.dim
+        n = len(self._product_dicts)
+        cache_path = _embedding_cache_path(
+            self._data_path, self._embedding_backend._model_name, n, dim,
+        )
+        meta_path = _cache_metadata_path(cache_path)
+
+        data_hash = _compute_data_hash(self._data_path)
+        np.save(str(cache_path), self._embedding._embeddings)
+        meta_path.write_text(json.dumps({
+            "model_name": self._embedding_backend._model_name,
+            "dim": dim,
+            "count": n,
+            "dtype": "float32",
+            "data_sha256": data_hash,
+            "text_schema_version": TEXT_SCHEMA_VERSION,
+            "created": str(time.time()),
+        }, indent=2), encoding="utf-8")
+        logger.info("Embedding cache saved to %s", cache_path)
 
     @staticmethod
     def _create_real_backend() -> EmbeddingBackend:
-        """Try to create a real SentenceTransformers backend.
+        """Create a real SentenceTransformers backend.
 
         Returns:
-            SentenceTransformersBackend if available, else FakeEmbeddingBackend.
+            SentenceTransformersBackend.
+
+        Raises:
+            RuntimeError: If the model fails to load.
         """
         try:
             backend = SentenceTransformersBackend(
@@ -301,13 +396,19 @@ class RetrievalService:
                 batch_size=64,
                 normalize=True,
             )
-            # Touch to verify it loads
-            _ = backend.dim
+            _ = backend.dim  # Force load
             logger.info("Using real embedding: all-MiniLM-L6-v2 (384-dim)")
             return backend
-        except (ImportError, OSError) as e:
-            logger.info("Real embedding unavailable (%s). Using fake backend.", e)
-            return FakeEmbeddingBackend(dim=128, seed=42)
+        except ImportError as e:
+            raise RuntimeError(
+                "Real embedding requested but sentence-transformers is not installed. "
+                "Install with: pip install sentence-transformers, "
+                "or pass use_fake_embeddings=True to use fake embeddings."
+            ) from e
+        except OSError as e:
+            raise RuntimeError(
+                f"Real embedding requested but model failed to load: {e}"
+            ) from e
 
     # ------------------------------------------------------------------
     # Public search API
@@ -534,10 +635,7 @@ class RetrievalService:
     def _rerank_candidates(
         self, query: str, candidates: list[RetrievalResultItem],
     ) -> dict[str, float]:
-        """Rerank candidates using the current reranker backend.
-
-        Uses KeywordReranker (Jaccard) in fake mode. In production,
-        this would use a Cross-Encoder.
+        """Rerank candidates using the instance's reranker backend.
 
         Args:
             query: The search query.
@@ -546,12 +644,25 @@ class RetrievalService:
         Returns:
             Dict of product_id → reranker_score.
         """
-        reranker = KeywordReranker()
+        if self._reranker is None:
+            # Lazy init: CrossEncoder by default, Keyword for fake mode
+            if self._use_fake_embeddings:
+                self._reranker = KeywordReranker()
+            else:
+                try:
+                    self._reranker = CrossEncoderReranker()
+                except (ImportError, OSError) as e:
+                    logger.error("CrossEncoder failed: %s. Install sentence-transformers.", e)
+                    self._reranker = KeywordReranker()
+                    raise RuntimeError(
+                        f"CrossEncoderReranker unavailable: {e}"
+                    ) from e
+
         pairs = [
             (query, _build_search_text(self._product_index.get(c.product_id, {})))
             for c in candidates
         ]
-        scores = reranker.score(pairs)
+        scores = self._reranker.score(pairs)
         return {
             c.product_id: round(s, 4)
             for c, s in zip(candidates, scores)
@@ -619,7 +730,7 @@ class RetrievalService:
         return ids
 
     # ------------------------------------------------------------------
-    # Properties
+    # Properties / Status
     # ------------------------------------------------------------------
 
     @property
@@ -640,3 +751,34 @@ class RetrievalService:
         if isinstance(self._embedding_backend, SentenceTransformersBackend):
             return self._embedding_backend.model_info
         return {"type": "fake", "dim": self._embedding_backend.dim}
+
+    def status(self) -> dict[str, Any]:
+        """Return comprehensive service status for /health endpoint.
+
+        Returns a dict safe for API exposure (no local paths).
+        """
+        emb_type = "none"
+        emb_model = "none"
+        emb_dim = 0
+        if self._embedding_backend is not None:
+            emb_dim = self._embedding_backend.dim
+            if isinstance(self._embedding_backend, SentenceTransformersBackend):
+                emb_type = "sentence-transformers"
+                emb_model = self._embedding_backend._model_name
+            elif isinstance(self._embedding_backend, FakeEmbeddingBackend):
+                emb_type = "fake"
+                emb_model = "FakeEmbeddingBackend"
+
+        reranker_name = "none (lazy, not yet loaded)"
+        if self._reranker is not None:
+            reranker_name = self._reranker.backend_name
+
+        return {
+            "retrieval_service_ready": self._is_initialized,
+            "embedding_backend": emb_type,
+            "embedding_model": emb_model,
+            "embedding_dim": emb_dim,
+            "reranker_backend": reranker_name,
+            "product_count": self.product_count,
+            "embedding_cache_hit": self._embedding_cache_hit,
+        }

@@ -83,12 +83,18 @@ def get_catalog() -> ProductCatalog:
 # ---------------------------------------------------------------------------
 @router.get("/health", response_model=HealthResponse)
 async def health_check() -> HealthResponse:
-    """Health check endpoint."""
-    catalog = _catalog
+    """Health check endpoint with retrieval service status."""
+    catalog_size = len(_catalog) if _catalog else 0
+
+    extra: dict[str, Any] = {}
+    if _service is not None:
+        extra = _service.status()
+
     return HealthResponse(
         status="ok",
         version="0.1.0",
-        catalog_size=len(catalog) if catalog else 0,
+        catalog_size=catalog_size,
+        **extra,
     )
 
 

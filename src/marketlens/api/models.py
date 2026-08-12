@@ -6,8 +6,9 @@ from pydantic import BaseModel, Field
 
 
 class HealthResponse(BaseModel):
-    """GET /health response."""
+    """GET /health response — includes retrieval service status."""
 
+    model_config = {"extra": "allow"}
     status: str = "ok"
     version: str = "0.1.0"
     catalog_size: int = 0

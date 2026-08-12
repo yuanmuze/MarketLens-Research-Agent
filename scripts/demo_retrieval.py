@@ -1,17 +1,18 @@
 #!/usr/bin/env python3
-"""Demonstrate the four retrieval strategies on real product data.
+"""Compare retrieval strategies on product data.
 
-Runs 3 query types × 4 strategies, compares results and timing.
+5 query types × 4 strategies. Reports timing (P50/P95) and status.
 
 Usage:
-  uv run python scripts/demo_retrieval.py
   uv run python scripts/demo_retrieval.py --products data/processed/electronics_2000.json
+  uv run python scripts/demo_retrieval.py  # uses fixture if no real data
 """
 
 from __future__ import annotations
 
 import argparse
 import logging
+import statistics
 import time
 from pathlib import Path
 from typing import Any
@@ -24,23 +25,30 @@ logger = logging.getLogger(__name__)
 
 
 DEMO_QUERIES: list[dict[str, Any]] = [
-    # Type 1: Brand/keyword query
     {
-        "query": "Sony wireless headphones noise cancelling",
-        "category": "Brand/keyword — exact brand + product features",
-        "filters": {},  # No constraints
+        "query": "Sony wireless noise cancelling headphones",
+        "category": "Brand/keyword — exact brand + feature keywords",
+        "filters": {},
     },
-    # Type 2: Natural language semantic query
     {
-        "query": "affordable bluetooth earbuds with good sound for working out",
+        "query": "comfortable earbuds for running and working out",
         "category": "Semantic — natural language need description",
+        "filters": {},
+    },
+    {
+        "query": "bluetooth headphones for music",
+        "category": "Budget — needs to stay under price cap",
         "filters": {"max_budget": 50.0},
     },
-    # Type 3: Constrained query with price + rating
     {
-        "query": "high quality premium headphones with microphone for office calls",
-        "category": "Constrained — features + budget + rating",
-        "filters": {"min_rating": 4.0, "max_budget": 200.0},
+        "query": "premium office headset with microphone",
+        "category": "Rating constraint — needs 4.0+ stars",
+        "filters": {"min_rating": 4.0},
+    },
+    {
+        "query": "quantum computing GPU accelerator PCIe card",
+        "category": "No-match — this should not exist in Electronics catalog",
+        "filters": {},
     },
 ]
 
@@ -55,58 +63,63 @@ def print_header(title: str) -> None:
 
 
 def print_results(output) -> None:
-    """Print retrieval results."""
+    """Print retrieval results table."""
     print(f"  Strategy: {output.strategy} | Found: {output.total_found} | Time: {output.elapsed_ms:.1f} ms")
     if output.model_used:
         print(f"  Model: {output.model_used} ({output.embedding_dim}-dim)")
-    print(f"  {'Rank':<5} {'Score':<8} {'Brand':<20} {'Price':<10} {'Rating':<8} Title")
-    print(f"  {'-'*5} {'-'*8} {'-'*20} {'-'*10} {'-'*8} {'-'*40}")
+    print(f"  {'Rank':<5} {'Score':<8} {'Product ID':<16} {'Price':<10} {'Rating':<8} Title")
+    print(f"  {'-'*5} {'-'*8} {'-'*16} {'-'*10} {'-'*8} {'-'*40}")
     for item in output.results[:5]:
         price_str = f"${item.price:.2f}" if item.price is not None else "—"
         rating_str = f"{item.rating}/5" if item.rating is not None else "—"
-        title = item.title[:45]
-        print(f"  {item.rank:<5} {item.final_score:<8.4f} {item.brand:<20} {price_str:<10} {rating_str:<8} {title}")
+        print(f"  {item.rank:<5} {item.final_score:<8.4f} {item.product_id:<16} {price_str:<10} {rating_str:<8} {item.title[:38]}")
+    if output.results and output.results[0].reranker_score is not None:
+        print(f"  (reranker scores: {' '.join(f'{r.product_id}={r.reranker_score}' for r in output.results[:3])})")
     print()
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Demo MarketLens retrieval strategies")
-    parser.add_argument(
-        "--products", type=Path,
-        default=Path("data/processed/electronics_2000.json"),
-        help="Path to product JSON",
-    )
+    parser.add_argument("--products", type=Path, default=Path("data/processed/electronics_2000.json"), help="Path to product JSON")
+    parser.add_argument("--fake", action="store_true", help="Force fake embeddings (skip model download)")
     args = parser.parse_args()
 
-    if not args.products.exists():
-        # Fall back to fixture
-        logger.info("Real data not found at %s, using fixture", args.products)
-        catalog = ProductCatalog.from_fixture("electronics_sample.json")
-        data_path = None
-    else:
-        logger.info("Loading products from %s", args.products)
+    use_real = args.products.exists() and not args.fake
+    if use_real:
+        logger.info("Loading %s", args.products)
         catalog = ProductCatalog.from_json(args.products)
         data_path = args.products
+        use_fake = False
+    else:
+        logger.info("Using fixture catalog")
+        catalog = ProductCatalog.from_fixture("electronics_sample.json")
+        data_path = None
+        use_fake = True
 
-    print_header("Initializing RetrievalService")
-    logger.info("This loads BM25 index and computes/loads embedding cache...")
+    print_header("Initialization")
+    logger.info("Building indices and loading embeddings...")
     t0 = time.monotonic()
-    service = RetrievalService(catalog, data_path=data_path)
+    service = RetrievalService(catalog, data_path=data_path, use_fake_embeddings=use_fake)
     service.initialize()
     init_time = (time.monotonic() - t0) * 1000
-    logger.info(f"First initialization: {init_time:.0f} ms")
-    logger.info(f"Embedding backend: {service.embedding_model_info}")
+    logger.info("Init complete: %.0f ms", init_time)
 
-    print_header("Demonstration: 3 Queries × 4 Strategies")
+    status = service.status()
+    print_header("Service Status")
+    for k, v in sorted(status.items()):
+        print(f"  {k}: {v}")
+
+    # Warm-up query (loads reranker if lazy)
+    _ = service.search("warmup", strategy="hybrid", top_k=3)
+
+    print_header(f"5 Queries × 4 Strategies ({status['product_count']} products)")
+    all_timings: dict[str, list[float]] = {s: [] for s in STRATEGIES}
 
     for qi, demo in enumerate(DEMO_QUERIES, 1):
         query = demo["query"]
-        category = demo["category"]
         filters = demo["filters"]
-
         print(f"\n{'─' * 80}")
-        print(f"  Query {qi}: \"{query}\"")
-        print(f"  Category: {category}")
+        print(f"  Q{qi}: \"{query}\" [{demo['category']}]")
         if filters:
             print(f"  Filters: {filters}")
         print(f"{'─' * 80}")
@@ -114,24 +127,21 @@ def main() -> None:
         for strategy in STRATEGIES:
             t0 = time.monotonic()
             try:
-                output = service.search(
-                    query=query,
-                    strategy=strategy,
-                    top_k=5,
-                    candidate_k=30,
-                    **filters,
-                )
-                query_time = (time.monotonic() - t0) * 1000
-                output.elapsed_ms = query_time
+                output = service.search(query=query, strategy=strategy, top_k=5, candidate_k=30, **filters)
+                qt = (time.monotonic() - t0) * 1000
+                output.elapsed_ms = qt
+                all_timings[strategy].append(qt)
                 print_results(output)
             except Exception as e:
-                logger.error("  %s failed: %s", strategy, e)
+                logger.error("  %s ERROR: %s", strategy, e)
 
-    print_header("Summary")
-    logger.info("First init (model load + index build): %.0f ms", init_time)
-    logger.info("Cached queries run at ~0-2 ms each (in-memory numpy)")
-    logger.info("Note: Results vary by strategy. No ground truth exists yet.")
-    logger.info("These are relative comparisons, not absolute quality judgments.")
+    print_header("Timing Summary (P50 / P95, ms)")
+    for s in STRATEGIES:
+        ts = all_timings[s]
+        if ts:
+            print(f"  {s:<12}: P50={statistics.median(ts):.1f}  P95={sorted(ts)[int(len(ts)*0.95)]:.1f}  Mean={statistics.mean(ts):.1f}")
+    print()
+    logger.info("No ground truth — these are relative comparisons, not quality judgments.")
 
 
 if __name__ == "__main__":
