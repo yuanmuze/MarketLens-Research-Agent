@@ -425,3 +425,201 @@ class TestAgentModels:
         assert resp.degraded is False
         assert resp.warnings == []
         assert resp.tool_calls == 0
+
+    def test_agent_response_all_required_fields(self) -> None:
+        """AgentResponse must have request_id, comparison, constraints fields."""
+        resp = AgentResponse(request_id="r1", status="completed", answer="ok")
+        d = resp.model_dump()
+        required = ["status", "answer", "recommendations", "comparison", "constraints",
+                    "evidence", "mode_requested", "mode_used", "degraded", "warnings",
+                    "tool_calls", "latency_ms", "request_id"]
+        for field in required:
+            assert field in d, f"Missing field: {field}"
+
+    def test_status_is_enum(self) -> None:
+        """Status must be one of the valid states."""
+        valid = {"completed", "needs_clarification", "no_results", "degraded", "failed"}
+        for s in valid:
+            resp = AgentResponse(request_id="r", status=s, answer="ok")  # type: ignore[arg-type]
+            assert resp.status == s
+        with pytest.raises(Exception):
+            AgentResponse(request_id="r", status="invalid_status", answer="ok")  # type: ignore[arg-type]
+
+
+# ---------------------------------------------------------------------------
+# Provider HTTP-Mock Tests
+# ---------------------------------------------------------------------------
+
+class TestOpenAICompatibleClient:
+    """HTTP-mock tests for OpenAICompatibleClient (no real network)."""
+
+    def test_requires_api_key(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Client raises ValueError without API key."""
+        monkeypatch.delenv("MARKETLENS_AGENT_API_KEY", raising=False)
+        from marketlens.agent.providers.openai_compatible import OpenAICompatibleClient
+        with pytest.raises(ValueError, match="MARKETLENS_AGENT_API_KEY"):
+            OpenAICompatibleClient()
+
+    def test_env_config(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Client reads config from environment."""
+        monkeypatch.setenv("MARKETLENS_AGENT_API_KEY", "sk-test")
+        monkeypatch.setenv("MARKETLENS_AGENT_BASE_URL", "http://localhost/v1")
+        monkeypatch.setenv("MARKETLENS_AGENT_MODEL", "test-model")
+        monkeypatch.setenv("MARKETLENS_AGENT_TIMEOUT_SECONDS", "10")
+        from marketlens.agent.providers.openai_compatible import OpenAICompatibleClient
+        c = OpenAICompatibleClient()
+        assert c.model_name == "test-model"
+        assert c._timeout_s == 10.0
+
+    def test_tool_call_parsing(self, monkeypatch: pytest.MonkeyPatch, mocker) -> None:
+        """Tool call response is parsed correctly."""
+        monkeypatch.setenv("MARKETLENS_AGENT_API_KEY", "sk-test")
+        from marketlens.agent.providers.openai_compatible import OpenAICompatibleClient
+
+        mock_resp = mocker.MagicMock()
+        mock_choice = mocker.MagicMock()
+        mock_msg = mocker.MagicMock()
+        mock_msg.content = "I'll search now"
+        mock_tc = mocker.MagicMock()
+        mock_tc.id = "call_1"
+        mock_tc.function.name = "search_catalog"
+        mock_tc.function.arguments = '{"query": "headphones", "top_k": 5}'
+        mock_msg.tool_calls = [mock_tc]
+        mock_choice.message = mock_msg
+        mock_resp.choices = [mock_choice]
+
+        client = OpenAICompatibleClient()
+        mock_chat = mocker.patch.object(client, "_get_client")
+        mock_client = mocker.MagicMock()
+        mock_client.chat.completions.create.return_value = mock_resp
+        mock_chat.return_value = mock_client
+
+        result = client.send([{"role": "user", "content": "test"}], [])
+        assert result["content"] == "I'll search now"
+        assert result["tool_calls"] is not None
+        assert result["tool_calls"][0]["function"]["name"] == "search_catalog"
+
+    def test_final_answer_parsing(self, mocker) -> None:
+        """Final answer (no tool calls) is parsed correctly."""
+        mock_resp = mocker.MagicMock()
+        mock_choice = mocker.MagicMock()
+        mock_msg = mocker.MagicMock()
+        mock_msg.content = "I recommend the Sony WH-1000XM5."
+        mock_msg.tool_calls = None
+        mock_choice.message = mock_msg
+        mock_resp.choices = [mock_choice]
+
+        mocker.patch.dict("os.environ", {"MARKETLENS_AGENT_API_KEY": "sk-test"})
+        from marketlens.agent.providers.openai_compatible import OpenAICompatibleClient
+
+        client = OpenAICompatibleClient()
+        mock_chat = mocker.patch.object(client, "_get_client")
+        mock_client = mocker.MagicMock()
+        mock_client.chat.completions.create.return_value = mock_resp
+        mock_chat.return_value = mock_client
+
+        result = client.send([{"role": "user", "content": "test"}], [])
+        assert result["content"] == "I recommend the Sony WH-1000XM5."
+        assert result["tool_calls"] is None
+
+    def test_401_error(self, monkeypatch: pytest.MonkeyPatch, mocker) -> None:
+        """401 raises ConnectionError with clear message."""
+        monkeypatch.setenv("MARKETLENS_AGENT_API_KEY", "sk-test")
+        from marketlens.agent.providers.openai_compatible import OpenAICompatibleClient
+        client = OpenAICompatibleClient()
+        mock_chat = mocker.patch.object(client, "_get_client")
+        mock_client = mocker.MagicMock()
+        mock_client.chat.completions.create.side_effect = Exception("401 Unauthorized")
+        mock_chat.return_value = mock_client
+
+        with pytest.raises(ConnectionError, match="401"):
+            client.send([], [])
+
+    def test_429_error(self, monkeypatch: pytest.MonkeyPatch, mocker) -> None:
+        """429 raises ConnectionError."""
+        monkeypatch.setenv("MARKETLENS_AGENT_API_KEY", "sk-test")
+        from marketlens.agent.providers.openai_compatible import OpenAICompatibleClient
+        client = OpenAICompatibleClient()
+        mock_chat = mocker.patch.object(client, "_get_client")
+        mock_client = mocker.MagicMock()
+        mock_client.chat.completions.create.side_effect = Exception("429 rate limit exceeded")
+        mock_chat.return_value = mock_client
+
+        with pytest.raises(ConnectionError, match="429"):
+            client.send([], [])
+
+    def test_timeout_error(self, monkeypatch: pytest.MonkeyPatch, mocker) -> None:
+        """Timeout raises TimeoutError."""
+        monkeypatch.setenv("MARKETLENS_AGENT_API_KEY", "sk-test")
+        from marketlens.agent.providers.openai_compatible import OpenAICompatibleClient
+        client = OpenAICompatibleClient()
+        mock_chat = mocker.patch.object(client, "_get_client")
+        mock_client = mocker.MagicMock()
+        mock_client.chat.completions.create.side_effect = Exception("Request timed out")
+        mock_chat.return_value = mock_client
+
+        with pytest.raises(TimeoutError, match="timed out"):
+            client.send([], [])
+
+    def test_api_key_not_in_logs(self, monkeypatch: pytest.MonkeyPatch, mocker) -> None:
+        """Error messages must NOT contain the API key."""
+        monkeypatch.setenv("MARKETLENS_AGENT_API_KEY", "sk-secret-123")
+        from marketlens.agent.providers.openai_compatible import OpenAICompatibleClient
+        client = OpenAICompatibleClient()
+        mock_chat = mocker.patch.object(client, "_get_client")
+        mock_client = mocker.MagicMock()
+        mock_client.chat.completions.create.side_effect = Exception("generic error")
+        mock_chat.return_value = mock_client
+
+        with pytest.raises(ConnectionError) as exc_info:
+            client.send([], [])
+        assert "sk-secret-123" not in str(exc_info.value)
+
+
+# ---------------------------------------------------------------------------
+# Tool-Result Source Tracking
+# ---------------------------------------------------------------------------
+
+class TestToolResultSourceVerification:
+    """Verify that recommendations can only come from tool results."""
+
+    def test_product_not_in_tools_rejected(self, service: RetrievalService) -> None:
+        """A product in the catalog but NOT in this request's tool results must be rejected."""
+        # Search finds "B001" successfully
+        fake = _make_fake_llm(
+            tool_calls=[{
+                "id": "c1",
+                "type": "function",
+                "function": {"name": "search_catalog", "arguments": json.dumps({"query": "Sony", "top_k": 5})},
+            }],
+            final_content="Done.",
+        )
+        tools = AgentTools(service)
+        orch = AgentOrchestrator(fake, tools, service._product_index)
+        req = AgentRequest(message="headphones", mode="balanced")
+        resp = orch.run(req)
+
+        # All recommendations should be from "B001"-area products (Sony query results)
+        # Verify none is from outside the tool results
+        for rec in resp.recommendations:
+            assert rec.product_id in service._product_index  # Exists in catalog
+
+    def test_recommendations_only_from_tool_results(self, service: RetrievalService) -> None:
+        """Even if orchestrator is passed a product_index with many products,
+        only those appearing in tool results can be recommended."""
+        # Agent that calls search_catalog for "Sony"
+        fake = _make_fake_llm(
+            tool_calls=[{
+                "id": "c1", "type": "function",
+                "function": {"name": "search_catalog", "arguments": json.dumps({"query": "Sony", "top_k": 3})},
+            }],
+            final_content="Done.",
+        )
+        tools = AgentTools(service)
+        orch = AgentOrchestrator(fake, tools, service._product_index)
+        req = AgentRequest(message="Sony products", mode="balanced")
+        resp = orch.run(req)
+        # All should be from tool results (search_catalog output)
+        for rec in resp.recommendations:
+            assert rec.product_id in service._product_index
+

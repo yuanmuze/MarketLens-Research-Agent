@@ -56,9 +56,9 @@ def init_catalog(
     global _catalog, _service
     _catalog = catalog
 
-    from marketlens.retrieval.service import RetrievalService
     import os
-    from marketlens.retrieval.embedding import FakeEmbeddingBackend
+
+    from marketlens.retrieval.service import RetrievalService
     # Always allow fake embedding override for tests
     use_fake = os.environ.get("MARKETLENS_USE_FAKE_EMBEDDINGS", "").lower() == "true" or data_path is None
     _service = RetrievalService(catalog, data_path=data_path, use_fake_embeddings=use_fake)

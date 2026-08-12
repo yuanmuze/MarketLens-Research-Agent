@@ -251,6 +251,7 @@ class AgentTools:
 def create_catalog_search_tool(catalog: Any, retriever: Any = None) -> Any:
     """Legacy catalog search tool for old graph.py (Phase 2)."""
     from langchain_core.tools import tool
+
     from marketlens.models import SearchQuery
 
     @tool(description="Search the product catalog by keyword query.")
