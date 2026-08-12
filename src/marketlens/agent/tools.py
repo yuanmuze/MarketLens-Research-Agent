@@ -125,6 +125,8 @@ class AgentTools:
             Search results.
         """
         strategy = MODE_STRATEGY.get(params.mode, "hybrid")
+        # Pass first brand (RetrievalService supports single brand string)
+        brand_filter = params.brands[0] if params.brands else None
         output = self._service.search(
             query=params.query,
             strategy=strategy,
@@ -132,7 +134,7 @@ class AgentTools:
             candidate_k=50,
             min_price=params.price_min,
             max_price=params.price_max,
-            brand=None,  # Multi-brand support via filter step
+            brand=brand_filter,
             min_rating=params.min_rating,
         )
 
