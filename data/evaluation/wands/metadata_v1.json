@@ -1,0 +1,21 @@
+{
+  "wands_source": "https://github.com/wayfair/WANDS",
+  "wands_commit": "3b74dcf4ba29ab8ff3e6a50b5b09fc627cb882b5",
+  "wands_files_sha256": {
+    "product.csv": "d993926254572e6eba96c8fd87cc549a17fb91ad3748308036eee4cf92b10ac6",
+    "query.csv": "63b61660560fecc33ec490804c7e2b81402ee3e7c31a9cbb5e03736639f68e95",
+    "label.csv": "c11fe81ad62f17f56f316b0ec9630ebe8fbe1393578cb0ca4f05c17253a180ef"
+  },
+  "marketlens_commit": "3050e97ac2f1a65d01534746dbc26cb0b1035791",
+  "embedding_model": "all-MiniLM-L6-v2 (384-dim)",
+  "reranker_model": "cross-encoder/ms-marco-MiniLM-L-6-v2",
+  "top_k": 10,
+  "candidate_k": 50,
+  "rrf_k": 60,
+  "seed": 42,
+  "generated_at": "2026-08-12T08:16:19.892408+00:00",
+  "product_count": 42994,
+  "query_count": 480,
+  "unique_labeled_pairs": 231873,
+  "label_aggregation": "majority vote, tie-break: Exact > Partial > Irrelevant"
+}

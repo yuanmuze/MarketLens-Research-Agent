@@ -204,6 +204,7 @@ def evaluate_strategy(
 
 
 def main() -> None:
+    """Run WANDS benchmark evaluation across retrieval strategies."""
     parser = argparse.ArgumentParser(description="Evaluate strategies on WANDS")
     parser.add_argument("--resume", action="store_true", help="Resume from existing output files")
     parser.add_argument("--strategy", choices=STRATEGIES, default=None, help="Run single strategy only")

@@ -176,14 +176,28 @@ def load_qrels(path: Path) -> dict[str, dict[str, int]]:
                 continue
             pair_votes[(qid, pid)].append(LABEL_MAP[label_name])
 
-    # Majority vote per pair
+    # Majority vote per pair with deterministic tie-breaking
+    # Rule: strict majority wins; if no majority, highest priority grade wins
+    # Priority: Exact (2) > Partial (1) > Irrelevant (0)
     qrels: dict[str, dict[str, int]] = defaultdict(dict)
+    ties_broken = 0
     for (qid, pid), votes in pair_votes.items():
-        majority = Counter(votes).most_common(1)[0][0]
-        qrels[qid][pid] = majority
+        c = Counter(votes)
+        n = len(votes)
+        most_common = c.most_common()
+        if most_common[0][1] > n / 2:
+            # Strict majority
+            qrels[qid][pid] = most_common[0][0]
+        else:
+            # Tie: pick highest grade (2 > 1 > 0)
+            qrels[qid][pid] = max(votes)
+            ties_broken += 1
+
+    if ties_broken:
+        logger.info("Ties broken (no strict majority): %d pairs", ties_broken)
 
     # Count distribution
-    label_counts = Counter()
+    label_counts: Counter[int] = Counter()
     for qr in qrels.values():
         for grade in qr.values():
             label_counts[grade] += 1

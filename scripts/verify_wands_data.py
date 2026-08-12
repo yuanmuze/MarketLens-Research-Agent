@@ -13,7 +13,6 @@ Usage:
 from __future__ import annotations
 
 import csv
-import json
 import logging
 import sys
 from collections import Counter, defaultdict
@@ -55,11 +54,10 @@ def load_csv(path: Path, expected_delimiter: str = "\t") -> list[dict[str, str]]
 
 def main() -> None:
     """Verify WANDS dataset."""
-    # Check source manifest
+    # Check source manifest exists
     manifest_path = WANDS_DIR / "source.json"
     if not manifest_path.exists():
         fail(f"{manifest_path} not found. Run download_wands.py first.")
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
 
     # Load files
     product_path = WANDS_DIR / "product.csv"
@@ -132,12 +130,47 @@ def main() -> None:
     for r in labels:
         pair_votes[(r["query_id"], r["product_id"])].append(r.get(label_key, "Unknown"))
 
+    # Multi-annotator audit
+    vote_counts = Counter()
+    single_annotator = 0
+    multi_annotator = 0
+    all_agree = 0
+    has_majority = 0
+    no_majority = 0
+    label_priority = {"Exact": 3, "Partial": 2, "Irrelevant": 1}
+
     label_counts = Counter()
     for votes in pair_votes.values():
-        majority = Counter(votes).most_common(1)[0][0]
-        label_counts[majority] += 1
+        n = len(votes)
+        vote_counts[n] += 1
+        if n == 1:
+            single_annotator += 1
+            label_counts[votes[0]] += 1
+        else:
+            multi_annotator += 1
+            c = Counter(votes)
+            mc = c.most_common()
+            if mc[0][1] > n / 2:
+                has_majority += 1
+                label_counts[mc[0][0]] += 1
+                if len(mc) == 1:
+                    all_agree += 1
+            else:
+                no_majority += 1
+                # Tie-break: higher priority wins
+                best = max(votes, key=lambda x: label_priority.get(x, 0))
+                label_counts[best] += 1
+
     total_unique = len(pair_votes)
-    logger.info("=== Label Distribution (majority per pair) ===")
+    logger.info("=== Multi-Annotator Audit ===")
+    logger.info("  Single annotator pairs: %d", single_annotator)
+    logger.info("  Multi annotator pairs: %d", multi_annotator)
+    logger.info("    All agree: %d", all_agree)
+    logger.info("    Has majority (some disagree): %d", has_majority - all_agree)
+    logger.info("    No strict majority (tie-broken): %d", no_majority)
+    logger.info("  Vote count distribution: %s", dict(sorted(vote_counts.items())))
+    logger.info("  Tie-breaking rule: Exact > Partial > Irrelevant (deterministic)")
+    logger.info("=== Label Distribution (after aggregation) ===")
     for k in ["Exact", "Partial", "Irrelevant"]:
         logger.info("  %s: %d (%.1f%%)", k, label_counts[k], 100 * label_counts[k] / total_unique)
     if "Exact" not in label_counts or "Partial" not in label_counts or "Irrelevant" not in label_counts:
