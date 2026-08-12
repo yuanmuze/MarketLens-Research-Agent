@@ -1,0 +1,147 @@
+# WANDS Evaluation Report — MarketLens Phase 4
+
+## Why WANDS
+
+WANDS (Wayfair ANnotation Dataset for Search) is a public e-commerce search
+benchmark with 42,994 products, 480 queries, and 233,448 human relevance labels
+(Exact/Partial/Irrelevant). Unlike self-curated fixture evaluations, WANDS
+provides real human judgments from a production search system.
+
+Key advantages:
+- Publicly available (CC BY-NC 4.0)
+- Human-labeled (not synthetic/LLM-generated)
+- Multi-grade relevance (Exact/Partial/Irrelevant)
+- Large enough for statistical significance (480 queries)
+- Covers diverse query classes
+
+## Data Source
+
+| Field | Value |
+|-------|-------|
+| Repository | https://github.com/wayfair/WANDS |
+| License | CC BY-NC 4.0 |
+| Products | 42,994 |
+| Queries | 480 |
+| Unique labeled pairs | 231,873 |
+| Label distribution | Exact 11.0%, Partial 62.8%, Irrelevant 26.2% |
+
+### File SHA256
+
+| File | SHA256 |
+|------|--------|
+| product.csv | d993926254572e6e... |
+| query.csv | 63b61660560fecc3... |
+| label.csv | c11fe81ad62f17f5... |
+
+## WANDS Field Adaptation
+
+WANDS fields mapped to MarketLens:
+
+| WANDS Field | MarketLens Usage | Notes |
+|-------------|-----------------|-------|
+| product_name | title | For BM25 and embedding text |
+| product_class | attributes.product_class | Category metadata |
+| product_description + features | description | For embedding text |
+| average_rating | rating | Optional, may be None |
+| review_count | review_count | Optional, may be None |
+
+**WANDS has NO price or brand fields.** Products are created with
+price=None and brand=None. Structured filters (brand, price, rating)
+are NOT evaluated on WANDS. All four strategies run without
+constraints.
+
+## Label and Metric Definitions
+
+### Relevance Mapping
+- Exact = 2 (highly relevant to query)
+- Partial = 1 (somewhat relevant)
+- Irrelevant = 0
+
+Multi-annotator duplicates are resolved by majority vote.
+
+### Metrics (macro-averaged across queries)
+
+| Metric | Definition |
+|--------|-----------|
+| nDCG@5 | Graded (0/1/2) DCG normalized by ideal DCG at rank 5 |
+| nDCG@10 | Same at rank 10 |
+| Precision@5 | Fraction of top-5 with relevance ≥ 1 |
+| Precision@10 | Same at rank 10 |
+| Exact MRR@10 | Mean reciprocal rank of first Exact=2 result |
+| Exact Success@10 | Fraction of queries with Exact in top-10 |
+| Known Recall@50 | Recall of human-labeled relevant products at rank 50 |
+
+### Diagnostic Metrics
+- Top-10 judged/unjudged ratio
+- Queries with fewer than 10 results
+- Per query_class breakdown
+
+## Results
+
+> ⚠ Results to be filled after evaluation completes.
+> This section will be populated with actual metrics from the
+> `scripts/evaluate_wands.py` run.
+
+| Strategy | nDCG@10 | Prec@10 | MRR@10 | Success@10 | Recall@50 | Unjudged% |
+|----------|---------|---------|--------|------------|-----------|-----------|
+| BM25 | TBD | TBD | TBD | TBD | TBD | TBD |
+| Embedding | TBD | TBD | TBD | TBD | TBD | TBD |
+| Hybrid RRF | TBD | TBD | TBD | TBD | TBD | TBD |
+| Rerank | TBD | TBD | TBD | TBD | TBD | TBD |
+
+## Rerank Diagnostics
+
+- Hybrid Top-50 Exact Coverage: TBD
+- Hybrid→Rerank nDCG changes (improved/same/degraded): TBD
+- Cross-Encoder pairs processed: 480 × CANDIDATE_K = 24,000
+- Reranker cold start: TBD
+
+## Query Class Groups
+
+TBD (requires evaluation output)
+
+## Timing
+
+| Phase | Time |
+|-------|------|
+| BM25 index build (42,994 docs) | TBD |
+| Embedding model load | TBD |
+| First embedding computation (42,994 × 384) | TBD |
+| Cache load (second run) | TBD |
+| Reranker cold start | TBD |
+| Warm BM25 P50/P95 | TBD |
+| Warm Embedding P50/P95 | TBD |
+| Warm Hybrid P50/P95 | TBD |
+| Warm Rerank P50/P95 | TBD |
+
+## Evaluation Limitations
+
+1. **Incomplete labeling**: WANDS labels 231,873 pairs out of 480 × 42,994 = 20.6M
+   possible combinations. An unlabeled product ≠ irrelevant — top-10 unjudged
+   ratio is reported to quantify this gap.
+2. **No price/brand constraints**: WANDS has no price or brand data. Price and
+   brand filtering cannot be evaluated on this benchmark.
+3. **Recall upper bound**: Recall@50 can only measure recall of *known* relevant
+   products. True recall against all relevant products is unknown.
+4. **Domain specificity**: WANDS is furniture/home goods. Relevance patterns may
+   differ from Electronics (MarketLens' primary domain).
+5. **Cold start penalizes reranker**: First rerank query includes ~13s CrossEncoder
+   loading. Second-run timing is reported separately.
+
+## What Amazon 2,000 Products Still Validate
+
+The 2,000 Electronics products remain for:
+- Price/brand/rating structured filtering demonstration
+- FastAPI /search integration testing
+- Reranker warm-start latency measurement
+
+## Results ≠ Conversion Rate
+
+Information retrieval metrics (nDCG, Precision, MRR) measure relevance ranking
+quality, not user behavior. Higher nDCG does not guarantee higher click-through
+rate, purchase rate, or revenue. These metrics validate the retrieval pipeline,
+not the business impact.
+
+---
+
+*Generated by MarketLens Phase 4 evaluation framework.*

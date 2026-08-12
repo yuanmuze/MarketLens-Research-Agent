@@ -96,6 +96,33 @@ This project is built on [langchain-ai/open_deep_research](https://github.com/la
 
 See [docs/UPSTREAM_VS_MY_WORK.md](docs/UPSTREAM_VS_MY_WORK.md) for full comparison.
 
+## Evaluation (WANDS Benchmark)
+
+Uses the [WANDS](https://github.com/wayfair/WANDS) public e-commerce search
+benchmark (CC BY-NC 4.0) with 42,994 products, 480 queries, and 233,448
+human relevance labels (Exact/Partial/Irrelevant).
+
+```bash
+# Download WANDS
+uv run python scripts/download_wands.py
+
+# Verify integrity
+uv run python scripts/verify_wands_data.py
+
+# Run full benchmark (4 strategies × 480 queries)
+uv run python scripts/evaluate_wands.py
+
+# Resume interrupted run
+uv run python scripts/evaluate_wands.py --resume
+```
+
+Results are written to `data/evaluation/wands/`.
+See [reports/wands_evaluation_report.md](reports/wands_evaluation_report.md).
+
+WANDS and Amazon are separate data links:
+- **WANDS**: Official retrieval benchmark (furniture, human-labeled)
+- **Amazon 2,000**: Structured filtering demo (electronics, auto-curated)
+
 ## Data Pipeline
 
 Uses the official UCSD Amazon Reviews 2023 JSONL source via HuggingFace

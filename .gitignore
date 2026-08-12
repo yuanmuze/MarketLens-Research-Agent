@@ -80,6 +80,8 @@ models--*
 !src/marketlens/fixtures/*.jsonl
 data/raw/
 data/processed/
+data/external/
+data/evaluation/
 
 .langgraph_api
 .claude/settings.local.json
