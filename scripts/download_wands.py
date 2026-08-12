@@ -105,8 +105,9 @@ def main() -> None:
         "source": "Wayfair WANDS (Wayfair ANnotation Dataset for Search)",
         "repo_url": WANDS_REPO,
         "repo_commit_sha": commit_sha,
-        "license": "CC BY-NC 4.0",
-        "license_url": "https://github.com/wayfair/WANDS/blob/main/LICENSE",
+        "license": "MIT License",
+        "license_url": "https://raw.githubusercontent.com/wayfair/WANDS/3b74dcf4ba29ab8ff3e6a50b5b09fc627cb882b5/LICENSE",
+        "license_sha256": "e3ce14610132897db9f64e21d7871a7a60c0bc04364ec61e4faa99643c5072d6",
         "downloaded_at": datetime.now(timezone.utc).isoformat(),
         "files": {
             fn: {"sha256": hashes[fn], "size_bytes": (OUTPUT_DIR / fn).stat().st_size}

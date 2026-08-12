@@ -99,7 +99,7 @@ See [docs/UPSTREAM_VS_MY_WORK.md](docs/UPSTREAM_VS_MY_WORK.md) for full comparis
 ## Evaluation (WANDS Benchmark)
 
 Uses the [WANDS](https://github.com/wayfair/WANDS) public e-commerce search
-benchmark (CC BY-NC 4.0) with 42,994 products, 480 queries, and 233,448
+benchmark (MIT License) with 42,994 products, 480 queries, and 233,448
 human relevance labels (Exact/Partial/Irrelevant).
 
 ```bash

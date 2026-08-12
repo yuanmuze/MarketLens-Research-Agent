@@ -17,5 +17,7 @@
   "product_count": 42994,
   "query_count": 480,
   "unique_labeled_pairs": 231873,
-  "label_aggregation": "majority vote, tie-break: Exact > Partial > Irrelevant"
+  "label_aggregation": "majority vote, tie-break: Exact > Partial > Irrelevant",
+  "wands_license": "MIT License",
+  "wands_license_sha256": "e3ce14610132897db9f64e21d7871a7a60c0bc04364ec61e4faa99643c5072d6"
 }
