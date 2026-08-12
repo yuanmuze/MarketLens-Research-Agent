@@ -11,6 +11,10 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query
 
+from marketlens.agent.models import AgentRequest, AgentResponse
+from marketlens.agent.orchestrator import AgentOrchestrator
+from marketlens.agent.providers.base import LLMClient
+from marketlens.agent.tools import AgentTools
 from marketlens.api.database import (
     ResearchJobRecord,
     SearchQueryRecord,
@@ -53,7 +57,11 @@ def init_catalog(
     _catalog = catalog
 
     from marketlens.retrieval.service import RetrievalService
-    _service = RetrievalService(catalog, data_path=data_path)
+    import os
+    from marketlens.retrieval.embedding import FakeEmbeddingBackend
+    # Always allow fake embedding override for tests
+    use_fake = os.environ.get("MARKETLENS_USE_FAKE_EMBEDDINGS", "").lower() == "true" or data_path is None
+    _service = RetrievalService(catalog, data_path=data_path, use_fake_embeddings=use_fake)
     _service.initialize()
 
 
@@ -366,3 +374,78 @@ async def get_job_report(job_id: str) -> ResearchReportResponse:
         generated_at=record.completed_at or datetime.now(timezone.utc),  # type: ignore[arg-type]
         report_text=str(record.report_text or ""),
     )
+
+
+# ---------------------------------------------------------------------------
+# POST /agent/recommend  (Phase 5 Agent)
+# ---------------------------------------------------------------------------
+
+class _NoOpLLM(LLMClient):
+    """Placeholder LLM client — triggers degraded fallback immediately."""
+    def send(self, messages, tools, *, timeout_s=30.0):
+        raise ConnectionError("No LLM configured. Set MARKETLENS_AGENT_API_KEY.")
+    @property
+    def model_name(self):
+        return "none"
+
+
+def _build_llm_client() -> LLMClient:
+    """Build LLM client from environment variables or return NoOp."""
+    import os
+    api_key = os.environ.get("MARKETLENS_AGENT_API_KEY", "")
+    base_url = os.environ.get("MARKETLENS_AGENT_BASE_URL", "https://api.openai.com/v1")
+    model = os.environ.get("MARKETLENS_AGENT_MODEL", "gpt-4.1-mini")
+    if not api_key:
+        return _NoOpLLM()
+    try:
+        from openai import OpenAI
+        client = OpenAI(api_key=api_key, base_url=base_url, timeout=30.0)
+
+        class OpenAILLMClient(LLMClient):
+            def __init__(self, client, model):
+                self._client = client
+                self._model = model
+            @property
+            def model_name(self):
+                return self._model
+            def send(self, messages, tools, *, timeout_s=30.0):
+                resp = self._client.chat.completions.create(
+                    model=self._model, messages=messages, tools=tools,
+                    tool_choice="auto", timeout=timeout_s,
+                )
+                msg = resp.choices[0].message
+                result = {"content": msg.content or ""}
+                if msg.tool_calls:
+                    result["tool_calls"] = [
+                        {
+                            "id": tc.id,
+                            "type": "function",
+                            "function": {"name": tc.function.name, "arguments": tc.function.arguments},
+                        }
+                        for tc in msg.tool_calls
+                    ]
+                return result
+        return OpenAILLMClient(client, model)
+    except ImportError:
+        return _NoOpLLM()
+
+
+@router.post("/agent/recommend", response_model=AgentResponse)
+async def agent_recommend(request: AgentRequest) -> AgentResponse:
+    """Product discovery agent — natural language to recommendations.
+
+    Accepts natural language queries and returns evidence-backed
+    product recommendations via an LLM-driven tool-calling loop.
+    """
+    service = get_service()
+    if service is None:
+        raise HTTPException(status_code=500, detail="Retrieval service not initialized")
+
+    catalog = get_catalog()
+    product_index = {p.product_id: p.model_dump() for p in catalog.get_all_products()}
+
+    llm = _build_llm_client()
+    tools = AgentTools(service)
+    orch = AgentOrchestrator(llm, tools, product_index)
+
+    return orch.run(request)
