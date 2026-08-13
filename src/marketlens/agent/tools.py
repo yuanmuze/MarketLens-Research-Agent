@@ -125,12 +125,26 @@ class AgentTools:
             Search results.
         """
         strategy = MODE_STRATEGY.get(params.mode, "hybrid")
-        # Pass first brand (RetrievalService supports single brand string)
-        brand_filter = params.brands[0] if params.brands else None
+
+        # Multi-brand semantics: match ANY allowed brand.
+        # RetrievalService only accepts a single brand string, so for
+        # multi-brand we search without brand filter and post-filter here.
+        allowed_brands = (
+            {b.strip().lower() for b in params.brands if b and b.strip()}
+            if params.brands else None
+        )
+
+        if allowed_brands and len(allowed_brands) == 1:
+            # Single brand → use built-in filter for efficiency
+            brand_filter = next(iter(allowed_brands))
+        else:
+            # Multi-brand or none → no brand filter, post-filter below
+            brand_filter = None
+
         output = self._service.search(
             query=params.query,
             strategy=strategy,
-            top_k=params.top_k,
+            top_k=params.top_k if allowed_brands is None or len(allowed_brands) == 1 else params.top_k * 3,
             candidate_k=50,
             min_price=params.price_min,
             max_price=params.price_max,
@@ -138,9 +152,19 @@ class AgentTools:
             min_rating=params.min_rating,
         )
 
-        items = [
-            SearchResultItem(
-                rank=item.rank,
+        items: list[SearchResultItem] = []
+        seen_ids: set[str] = set()
+        for item in output.results:
+            # Post-filter for multi-brand (match any allowed brand)
+            if allowed_brands and len(allowed_brands) > 1:
+                if not item.brand or item.brand.lower() not in allowed_brands:
+                    continue
+            # Dedup
+            if item.product_id in seen_ids:
+                continue
+            seen_ids.add(item.product_id)
+            items.append(SearchResultItem(
+                rank=len(items) + 1,  # Re-rank after filtering
                 product_id=item.product_id,
                 title=item.title,
                 brand=item.brand or None,
@@ -148,9 +172,9 @@ class AgentTools:
                 rating=item.rating,
                 review_count=item.review_count,
                 score=item.final_score,
-            )
-            for item in output.results
-        ]
+            ))
+            if len(items) >= params.top_k:
+                break
 
         return SearchCatalogResult(
             query=params.query,

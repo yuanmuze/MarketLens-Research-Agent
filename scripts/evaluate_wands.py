@@ -142,7 +142,7 @@ def evaluate_strategy(
                     judged = 1
                     rel_grade = qrels[qid][item.product_id]
 
-                line = {
+                record = {
                     "query_id": qid,
                     "query": q.query_text[:200],
                     "query_class": q.query_class,
@@ -155,7 +155,7 @@ def evaluate_strategy(
                     "judged": judged,
                     "relevance": rel_grade,
                 }
-                fh.write(json.dumps(line, ensure_ascii=False) + "\n")
+                fh.write(json.dumps(record, ensure_ascii=False) + "\n")
                 retrieved_ids.append(item.product_id)
         else:
             # Empty result → write one row

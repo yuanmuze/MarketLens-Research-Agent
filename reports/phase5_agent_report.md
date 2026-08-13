@@ -183,6 +183,33 @@ Response:
 - **Evidence tests**: Verify both valid and invalid recommendations
 - **Orchestrator tests**: Max steps, tool budget, degraded fallback,
   quality mode, deterministic reproducibility
+- **Provider HTTP-mock tests**: Tool call parsing, final answer parsing,
+  401/429/500/timeout errors, invalid JSON, missing message/choices field,
+  API key exclusion from logs
+
+## Multi-Brand Constraint Semantics
+
+The `search_catalog` tool accepts `brands` as a list and implements
+"match ANY allowed brand" semantics:
+
+- `brands=["Sony"]` → only Sony products (single-brand fast path via built-in filter)
+- `brands=["Sony", "Bose"]` → Sony OR Bose products (multi-brand post-filter)
+- Results are deduplicated and re-ranked after filtering
+- Empty or missing brand → no brand constraint
+
+## Quality Gates (Phase 5.3 Final Freeze)
+
+```bash
+uv sync --extra dev --extra data --extra embeddings
+uv run pytest            # 351 passed, 1 skipped, 0 errors
+uv run ruff check .      # clean (legacy/upstream excluded)
+uv run mypy src scripts  # clean (legacy/upstream excluded)
+```
+
+Legacy/upstream directories (`src/legacy/`, `src/open_deep_research/`,
+`src/security/`) are excluded from pytest collection, ruff, and mypy
+because they are vendored from the original Open Deep Research upstream
+and are not maintained as first-party MarketLens code.
 
 ## Known Limitations
 

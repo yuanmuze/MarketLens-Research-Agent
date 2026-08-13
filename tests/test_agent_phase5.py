@@ -684,6 +684,42 @@ class TestProviderInvalidResponses:
         with pytest.raises(ConnectionError, match="server error"):
             client.send([], [])
 
+    def test_invalid_json_response(self, monkeypatch: pytest.MonkeyPatch, mocker) -> None:
+        """HTTP 200 with non-JSON body raises ConnectionError."""
+        monkeypatch.setenv("MARKETLENS_AGENT_API_KEY", "sk-test")
+        from marketlens.agent.providers.openai_compatible import OpenAICompatibleClient
+
+        client = OpenAICompatibleClient()
+        mock_chat = mocker.patch.object(client, "_get_client")
+        mock_client = mocker.MagicMock()
+        # Simulate a JSON decode error when parsing the response
+        mock_client.chat.completions.create.side_effect = Exception(
+            "Expecting value: line 1 column 1 (char 0)"
+        )
+        mock_chat.return_value = mock_client
+
+        with pytest.raises(ConnectionError):
+            client.send([], [])
+
+    def test_missing_message_field(self, monkeypatch: pytest.MonkeyPatch, mocker) -> None:
+        """choices present but message is None raises RuntimeError."""
+        monkeypatch.setenv("MARKETLENS_AGENT_API_KEY", "sk-test")
+        from marketlens.agent.providers.openai_compatible import OpenAICompatibleClient
+
+        mock_resp = mocker.MagicMock()
+        mock_choice = mocker.MagicMock()
+        mock_choice.message = None  # Missing message field
+        mock_resp.choices = [mock_choice]
+
+        client = OpenAICompatibleClient()
+        mock_chat = mocker.patch.object(client, "_get_client")
+        mock_client = mocker.MagicMock()
+        mock_client.chat.completions.create.return_value = mock_resp
+        mock_chat.return_value = mock_client
+
+        with pytest.raises((AttributeError, RuntimeError)):
+            client.send([], [])
+
 
 # ---------------------------------------------------------------------------
 # Hard Constraint Enforcement at Orchestrator Level
@@ -781,5 +817,38 @@ class TestHardConstraintEnforcement:
                 assert p.price is None  # Stay None
             else:
                 assert p.price > 0  # Real price, not 0
+
+    def test_price_min_enforced(self, service: RetrievalService) -> None:
+        """price < price_min must be rejected."""
+        from marketlens.agent.models import SearchCatalogParams
+        tools = AgentTools(service)
+        result = tools.search_catalog(SearchCatalogParams(
+            query="headphones", price_min=200.0, top_k=10,
+        ))
+        for item in result.results:
+            assert item.price is not None
+            assert item.price >= 200.0, f"{item.product_id} price {item.price} < 200"
+
+    def test_multi_brand_any_of(self, service: RetrievalService) -> None:
+        """brands=["Sony", "Bose"] → both brands are allowed results."""
+        from marketlens.agent.models import SearchCatalogParams
+        tools = AgentTools(service)
+        result = tools.search_catalog(SearchCatalogParams(
+            query="headphones", brands=["Sony", "Bose"], top_k=10,
+        ))
+        assert len(result.results) > 0
+        for item in result.results:
+            assert item.brand and item.brand.lower() in ("sony", "bose"), \
+                f"{item.product_id} brand {item.brand} not in allowed set"
+
+    def test_multi_brand_no_duplicates(self, service: RetrievalService) -> None:
+        """Multi-brand results must not contain duplicate product IDs."""
+        from marketlens.agent.models import SearchCatalogParams
+        tools = AgentTools(service)
+        result = tools.search_catalog(SearchCatalogParams(
+            query="headphones", brands=["Sony", "Bose", "Apple", "Samsung"], top_k=20,
+        ))
+        ids = [item.product_id for item in result.results]
+        assert len(ids) == len(set(ids)), "Duplicate product IDs in results"
 
 

@@ -131,7 +131,7 @@ def main() -> None:
         pair_votes[(r["query_id"], r["product_id"])].append(r.get(label_key, "Unknown"))
 
     # Multi-annotator audit
-    vote_counts = Counter()
+    vote_counts: Counter[int] = Counter()
     single_annotator = 0
     multi_annotator = 0
     all_agree = 0
@@ -139,7 +139,7 @@ def main() -> None:
     no_majority = 0
     label_priority = {"Exact": 3, "Partial": 2, "Irrelevant": 1}
 
-    label_counts = Counter()
+    label_counts: Counter[str] = Counter()
     for votes in pair_votes.values():
         n = len(votes)
         vote_counts[n] += 1

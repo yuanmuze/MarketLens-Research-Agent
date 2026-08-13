@@ -112,7 +112,10 @@ class OpenAICompatibleClient(LLMClient):
         if choice is None:
             raise RuntimeError("LLM response has no choices")
 
-        msg = choice.message
+        msg = getattr(choice, "message", None)
+        if msg is None:
+            raise RuntimeError("LLM response choice has no message field")
+
         content = msg.content or ""
 
         tool_calls = None

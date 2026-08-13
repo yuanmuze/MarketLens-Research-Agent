@@ -14,19 +14,24 @@ MarketLens is a vertical product research system demonstrating AI Application, A
 ## Quickstart (No API Keys Required)
 
 ```bash
-# Clone and install
+# Clone and install (all extras: dev tools, data pipeline, embeddings)
 git clone <this-repo>
 cd MarketLens-Research-Agent
-uv sync --python 3.11 --extra dev --extra data
+uv sync --python 3.11 --extra dev --extra data --extra embeddings
 
-# Run all tests (193 tests, 0 API keys needed)
-uv run pytest tests/ -q --ignore=tests/extract_langsmith_data.py
+# Run all first-party tests (351 passed, 1 skip — no API keys needed)
+uv run pytest
 
 # Start the API
 uv run uvicorn marketlens.api.main:app --reload
 
 # Open http://127.0.0.1:8000/docs for interactive API docs
 ```
+
+> **Legacy/upstream code** (`src/legacy/`, `src/open_deep_research/`,
+> `src/security/`) is excluded from pytest collection, ruff, and mypy.
+> These are vendored from the original Open Deep Research upstream and
+> are kept for reference only, not maintained as first-party code.
 
 ## Architecture
 
@@ -69,16 +74,29 @@ scripts/
 ## Running Tests
 
 ```bash
-# Full test suite (all offline, no API keys)
-uv run pytest tests/ -q --ignore=tests/extract_langsmith_data.py
+# Full test suite (351 passed, 1 skip — all offline, no API keys)
+uv run pytest
 
 # Specific test groups
 uv run pytest tests/test_models.py -v        # 16 model tests
-uv run pytest tests/test_retrieval -v        # 49 retrieval tests
-uv run pytest tests/test_agent.py -v         # 22 agent tests
+uv run pytest tests/test_retrieval_service.py -v  # retrieval service tests
+uv run pytest tests/test_agent.py -v         # legacy agent tests
+uv run pytest tests/test_agent_phase5.py -v  # 60 Phase 5 agent tests
 uv run pytest tests/test_api.py -v           # 23 API tests
-uv run pytest tests/test_evaluation.py -v -s  # 16 benchmark tests
+uv run pytest tests/test_wands_evaluation.py -v  # 30 WANDS metric tests
 ```
+
+## Quality Gates
+
+```bash
+uv run ruff check .       # lints first-party code (legacy/upstream excluded)
+uv run mypy src scripts   # type-checks first-party code (legacy/upstream excluded)
+```
+
+Both commands pass clean. Legacy/upstream directories (`src/legacy/`,
+`src/open_deep_research/`, `src/security/`) are explicitly excluded in
+`pyproject.toml` because they are vendored from the original Open Deep
+Research project and are not maintained as first-party MarketLens code.
 
 ## Fake Mode vs. Real LLM Mode
 
