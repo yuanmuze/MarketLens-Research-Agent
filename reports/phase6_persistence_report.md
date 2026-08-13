@@ -60,12 +60,15 @@ Instead: short transactions only at the persistence points.
 - `asyncpg` was removed in Phase 6.1 — it was declared but never used
   (the persistence layer is fully synchronous).
 
-## PostgreSQL Validation Status (Phase 6.2 — real DB freeze)
+## PostgreSQL Validation Status (Phase 6.2.1 — final freeze)
 
 **PASSED — PostgreSQL 16.14 via Docker Compose.**
 
-- Docker Desktop 29.7.2, Docker Compose v5.3.1
-- Service: `db` (postgres:16), port 5432→5432, healthy
+- Docker Desktop application: **4.86.0 (236216)**
+- Docker Engine Server: **29.7.2**
+- Docker Compose: **v5.3.1**
+- PostgreSQL: **16.14** (Debian 16.14-1.pgdg13+1)
+- Service: `db` (postgres:16), port bound to **127.0.0.1:5432**, healthy
 - Test database: `marketlens_test` (separate from `marketlens` dev DB)
 - Driver: psycopg2 (synchronous)
 
@@ -78,6 +81,9 @@ alembic check          → No new upgrade operations detected ✓
 alembic downgrade base → Running downgrade ✓ (dedicated test DB only)
 alembic upgrade head   → Running upgrade ✓
 ```
+
+The `0001_initial` migration is now **frozen**. Any future schema change
+must be a NEW migration (0002 and above); never edit 0001 in place.
 
 ORM metadata and migration are consistent (fixed a `request_id`
 UniqueConstraint vs unique-index drift in the migration).
@@ -92,16 +98,34 @@ UniqueConstraint vs unique-index drift in the migration).
 - JSONB fields: metadata, constraints, response, arguments, result_product_ids
 - Numeric fields: price NUMERIC(12,2), rating NUMERIC(3,2), latency_ms NUMERIC(12,2)
 
-### PostgreSQL integration tests (11 passed)
+### PostgreSQL integration tests (11 passed, listed)
 
 ```
 uv run pytest -m postgres -q → 11 passed (not skipped)
 ```
 
-Covers: upsert idempotency, ORM→Pydantic, JSONB roundtrip, Decimal/Numeric
-precision, request_id unique constraint, ON DELETE CASCADE, transaction
-rollback, running→completed/failed, postgres catalog backend, Fake LLM
-API request recording AgentRun + ToolCall.
+| # | Test | Covers |
+|---|------|--------|
+| 1 | test_upsert_and_idempotent | upsert idempotency |
+| 2 | test_orm_to_pydantic | ORM→Pydantic conversion |
+| 3 | test_full_run_and_tool_calls | running→completed + tool calls |
+| 4 | test_failed_run_recorded | running→failed (same record, no duplicate) |
+| 5 | test_jsonb_roundtrip | JSONB write/commit/requery |
+| 6 | test_numeric_decimal_precision | Numeric/Decimal precision |
+| 7 | test_request_id_unique_constraint | request_id unique |
+| 8 | test_on_delete_cascade | DB-level ON DELETE CASCADE |
+| 9 | test_transaction_rollback | transaction rollback |
+| 10 | test_load_catalog_from_postgres | postgres catalog backend |
+| 11 | test_recorded_run_creates_then_updates | Fake LLM API recording AgentRun + ToolCall |
+
+**running→failed evidence** (`test_failed_run_recorded`): creates a
+`running` record, verifies it is queryable before failure, then marks the
+SAME record `failed`, asserting: same `id` (no second row), status=failed,
+no partial tool calls left on the failed path.
+
+**catalog backend test** (`test_load_catalog_from_postgres`): seeds
+products via repository, then calls `_load_catalog_from_postgres` and
+asserts both products are loaded into the in-memory catalog.
 
 ## Error Sanitization
 
@@ -135,3 +159,23 @@ vector search, out of scope here.
 
 `json` (default) loads catalog from JSON file. `postgres` loads from
 the `products` table via `ProductRepository`.
+
+## 完整回归结果（设置PostgreSQL测试数据库后）
+
+```
+uv run pytest -q -rs → 376 passed, 1 skipped
+uv run ruff check . → All checks passed!
+uv run mypy src scripts → Success: no issues found in 46 source files
+uv run alembic check → No new upgrade operations detected
+```
+
+唯一 skip：`tests/test_retrieval_comparison.py::TestEmbeddingBackends::test_sentence_transformers_import_error`，
+原因是 "sentence-transformers is installed, skipping import error test"。
+该测试只在 sentence-transformers **未安装**时验证 ImportError 降级路径，
+当前环境已安装该库，因此正确 skip。它不访问真实 LLM 或外部网络，可保留。
+
+## Localhost Port Hardening
+
+PostgreSQL is bound to `127.0.0.1:5432:5432` (not `0.0.0.0`), so the
+dev database is only reachable from the local machine, not exposed on
+the LAN/Internet.

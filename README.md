@@ -202,6 +202,8 @@ print(generate_markdown_report(reports, queries))
 > The persistence layer uses a **synchronous** SQLAlchemy engine with the
 > **psycopg2** driver (`postgresql+psycopg2://`). Alembic uses the same
 > engine/driver.
+> PostgreSQL is bound to **127.0.0.1:5432** (localhost only), not exposed
+> on the LAN/Internet.
 
 ```bash
 # Start dev PostgreSQL 16 (development only, not full deployment)

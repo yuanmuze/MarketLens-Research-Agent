@@ -134,16 +134,33 @@ class TestPostgresAgentRun:
         assert calls[1].tool_name == "compare_products"
 
     def test_failed_run_recorded(self, session) -> None:
-        """Failed run is queryable."""
+        """Same record transitions running → failed, no second record."""
         repo = AgentRunRepository(session)
         record = repo.create_running("pg-req-002", "test", "quality")
         session.commit()
+        original_id = record.id
+
+        # Verify running record exists and is queryable before failure
+        running = repo.get_by_request_id("pg-req-002")
+        assert running is not None
+        assert running.status == "running"
+
+        # Mark the SAME record failed
         repo.mark_failed(record.id, "TimeoutError", "LLM timed out", 5000.0)
         session.commit()
+
         fetched = repo.get_by_request_id("pg-req-002")
         assert fetched is not None
+        assert fetched.id == original_id  # Same record, not a new one
         assert fetched.status == "failed"
         assert fetched.error_type == "TimeoutError"
+
+        # No duplicate failed record
+        count = session.scalar(select(func.count()).select_from(AgentRunRecord))
+        assert count == 1
+
+        # No partial tool calls left on the failed path
+        assert repo.get_tool_calls(original_id) == []
 
 
 class TestPostgresJSONBAndNumeric:
