@@ -11,7 +11,12 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query
 
-from marketlens.agent.models import AgentRequest, AgentResponse
+from marketlens.agent.models import (
+    AgentRequest,
+    AgentResponse,
+    FeedbackRequest,
+    FeedbackResponse,
+)
 from marketlens.agent.orchestrator import AgentOrchestrator
 from marketlens.agent.providers.base import LLMClient
 from marketlens.agent.tools import AgentTools
@@ -646,3 +651,36 @@ def _mark_run_failed(run_id: int | None, error: Exception) -> None:
     with session_scope() as session:
         repo = AgentRunRepository(session)
         repo.mark_failed(run_id, error_type, safe_message)
+
+
+# ---------------------------------------------------------------------------
+# POST /feedback  (Phase 7 minimal feedback loop)
+# ---------------------------------------------------------------------------
+@router.post("/feedback", response_model=FeedbackResponse, status_code=201)
+async def submit_feedback(request: FeedbackRequest) -> FeedbackResponse:
+    """Record minimal user feedback on an agent run (idempotent)."""
+    from marketlens.persistence.engine import session_scope
+    from marketlens.persistence.repositories import FeedbackRepository
+
+    try:
+        with session_scope() as session:
+            repo = FeedbackRepository(session)
+            # Must reference an existing agent run
+            if not repo.agent_run_exists(request.agent_run_id):
+                raise HTTPException(status_code=404, detail="agent run not found")
+            # Idempotency: skip if the same idempotency_key already recorded
+            if request.idempotency_key and repo.idempotency_key_exists(request.idempotency_key):
+                raise HTTPException(status_code=200, detail="already recorded")
+            record = repo.create(
+                agent_run_id=request.agent_run_id,
+                feedback_type=request.feedback_type,
+                reason=request.reason,
+                idempotency_key=request.idempotency_key,
+            )
+            session.commit()
+            return FeedbackResponse(feedback_id=record.id)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Feedback submission failed: %s", type(e).__name__)
+        raise HTTPException(status_code=500, detail="feedback storage unavailable") from e

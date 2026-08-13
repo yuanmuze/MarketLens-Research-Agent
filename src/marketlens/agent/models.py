@@ -148,6 +148,24 @@ class RecommendationItem(BaseModel):
     constraint_checks: dict[str, bool] = Field(default_factory=dict)
 
 
+class FeedbackRequest(BaseModel):
+    """Minimal user feedback on an agent run."""
+
+    agent_run_id: int = Field(..., description="AgentRun DB id to attach feedback to")
+    feedback_type: Literal["helpful", "unhelpful"] = Field(
+        ..., description="Feedback type"
+    )
+    reason: str | None = Field(default=None, max_length=256, description="Optional reason")
+    idempotency_key: str | None = Field(default=None, max_length=64, description="Idempotency key")
+
+
+class FeedbackResponse(BaseModel):
+    """Feedback submission result."""
+
+    status: str = "recorded"
+    feedback_id: int
+
+
 class AgentResponse(BaseModel):
     """Final response from the agent API."""
 

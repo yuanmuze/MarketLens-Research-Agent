@@ -18,6 +18,7 @@ from marketlens.persistence.converters import product_to_record, record_to_produ
 from marketlens.persistence.models import (
     AgentRunRecord,
     AgentToolCallRecord,
+    FeedbackEventRecord,
     ProductEmbeddingRecord,
     ProductRecord,
 )
@@ -280,3 +281,42 @@ class ProductEmbeddingRepository:
         ).limit(top_k)
 
         return [(pid, float(sim)) for pid, sim in q.all()]
+
+
+class FeedbackRepository:
+    """Minimal user feedback persistence."""
+
+    def __init__(self, session: Session) -> None:
+        """Initialize with a SQLAlchemy session."""
+        self._session = session
+
+    def agent_run_exists(self, agent_run_id: int) -> bool:
+        """Check whether an agent run exists."""
+        return self._session.get(AgentRunRecord, agent_run_id) is not None
+
+    def idempotency_key_exists(self, idempotency_key: str) -> bool:
+        """Check whether a feedback event with this key already exists."""
+        if not idempotency_key:
+            return False
+        q = self._session.query(FeedbackEventRecord).filter_by(
+            idempotency_key=idempotency_key
+        )
+        return q.first() is not None
+
+    def create(
+        self,
+        agent_run_id: int,
+        feedback_type: str,
+        reason: str | None = None,
+        idempotency_key: str | None = None,
+    ) -> FeedbackEventRecord:
+        """Create a feedback event (idempotent via idempotency_key)."""
+        record = FeedbackEventRecord(
+            agent_run_id=agent_run_id,
+            feedback_type=feedback_type,
+            reason=reason,
+            idempotency_key=idempotency_key,
+        )
+        self._session.add(record)
+        self._session.flush()
+        return record

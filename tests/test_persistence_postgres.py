@@ -454,3 +454,51 @@ class TestIdempotency:
             asyncio.run(_recorded_run(req2, orch, tools, service._product_index))
         assert "409" in str(exc_info.value) or "conflict" in str(exc_info.value).lower()
         reset_engine()
+
+
+class TestFeedback:
+    """Minimal feedback persistence."""
+
+    def test_feedback_create_and_idempotent(self, session) -> None:
+        """Feedback creates and idempotency_key prevents duplicates."""
+        from marketlens.persistence.repositories import (
+            AgentRunRepository,
+            FeedbackRepository,
+        )
+
+        run_repo = AgentRunRepository(session)
+        run = run_repo.create_running("fb-req-001", "test", "balanced")
+        session.commit()
+
+        fb_repo = FeedbackRepository(session)
+        assert fb_repo.agent_run_exists(run.id)
+        assert fb_repo.agent_run_exists(999999) is False
+
+        fb_repo.create(run.id, "helpful", reason="good", idempotency_key="fb-key-1")
+        session.commit()
+        assert fb_repo.idempotency_key_exists("fb-key-1") is True
+        assert fb_repo.idempotency_key_exists("fb-key-nonexistent") is False
+
+    def test_feedback_fk_cascade(self, session) -> None:
+        """Deleting agent run cascades feedback events."""
+        from marketlens.persistence.models import FeedbackEventRecord
+        from marketlens.persistence.repositories import (
+            AgentRunRepository,
+            FeedbackRepository,
+        )
+
+        run_repo = AgentRunRepository(session)
+        run = run_repo.create_running("fb-req-002", "test", "balanced")
+        session.commit()
+
+        fb_repo = FeedbackRepository(session)
+        fb_repo.create(run.id, "helpful")
+        session.commit()
+
+        # Delete the run → feedback cascades
+        session.delete(run)
+        session.commit()
+
+        from sqlalchemy import func, select
+        count = session.scalar(select(func.count()).select_from(FeedbackEventRecord))
+        assert count == 0
