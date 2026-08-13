@@ -195,6 +195,54 @@ print(generate_markdown_report(reports, queries))
 | [PHASE6_LEARNING_GUIDE.md](docs/PHASE6_LEARNING_GUIDE.md) | BM25/embedding/RRF deep dive, 15 new interview Q&A |
 | [EVALUATION_ANNOTATION_GUIDE.md](docs/EVALUATION_ANNOTATION_GUIDE.md) | How to manually review eval queries |
 
+## PostgreSQL Persistence (Phase 6)
+
+### Start a development PostgreSQL
+
+```bash
+# Start dev PostgreSQL 16 (development only, not full deployment)
+docker compose up -d db
+
+# Configure DATABASE_URL (matching compose.yaml defaults)
+export MARKETLENS_DATABASE_URL="postgresql+psycopg2://marketlens:marketlens@localhost:5432/marketlens"
+
+# Run migrations (create tables)
+uv run alembic upgrade head
+
+# Import products from JSON (idempotent — safe to re-run)
+uv run python scripts/import_products.py --input data/processed/electronics_2000.json
+
+# Use postgres catalog backend
+export MARKETLENS_CATALOG_BACKEND=postgres
+
+# Shut down when done
+docker compose down
+```
+
+> Never run `alembic downgrade` on a normal development database — it is
+> destructive. Only test downgrade on a dedicated throwaway test database.
+
+### Two catalog backends
+
+| Backend | Behavior |
+|---------|----------|
+| `json` (default) | Loads products from JSON file (existing behavior) |
+| `postgres` | Loads products from `products` table, then builds in-memory retrieval index |
+
+Retrieval (BM25/vector/rerank) is still in-memory in both modes. PostgreSQL
+is used only for persistence, not for vector search (no pgvector in this phase).
+
+### Tests
+
+```bash
+# Default unit + regression tests (no PostgreSQL required)
+uv run pytest
+
+# PostgreSQL integration tests (skip if no test DB configured)
+export MARKETLENS_TEST_DATABASE_URL="postgresql+psycopg2://marketlens:marketlens@localhost:5432/marketlens_test"
+uv run pytest -m postgres
+```
+
 ## Environment Variables
 
 | Variable | Required | Default | Description |
@@ -202,7 +250,9 @@ print(generate_markdown_report(reports, queries))
 | `TAVILY_API_KEY` | No | — | Enables web search tool |
 | `OPENAI_API_KEY` | No | — | For real LLM mode (OpenAI) |
 | `ANTHROPIC_API_KEY` | No | — | For real LLM mode (Anthropic) |
-| `MARKETLENS_DATABASE_URL` | No | `sqlite:///marketlens.db` | Database connection string |
+| `MARKETLENS_DATABASE_URL` | No | `sqlite:///marketlens_persistence.db` | DB connection (Phase 6 persistence) |
+| `MARKETLENS_CATALOG_BACKEND` | No | `json` | `json` or `postgres` |
+| `MARKETLENS_TEST_DATABASE_URL` | No | — | PostgreSQL test DB (integration tests only) |
 
 ## Known Limitations
 

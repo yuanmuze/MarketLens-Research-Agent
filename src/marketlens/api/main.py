@@ -18,6 +18,17 @@ from marketlens.catalog import ProductCatalog
 logger = logging.getLogger(__name__)
 
 
+def _load_catalog_from_postgres() -> ProductCatalog:
+    """Load the product catalog from PostgreSQL via ProductRepository."""
+    from marketlens.persistence.engine import session_scope
+    from marketlens.persistence.repositories import ProductRepository
+
+    with session_scope() as session:
+        repo = ProductRepository(session)
+        products = repo.list_products(offset=0, limit=100_000)
+    return ProductCatalog(products)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan handler — initializes database and catalog."""
@@ -29,7 +40,17 @@ async def lifespan(app: FastAPI):
     init_db()
     logger.info("Database initialized")
 
-    # Load default catalog — prefer real data, fall back to fixture
+    # Load catalog — postgres backend (from DB) or json backend (from file)
+    import os
+
+    catalog_backend = os.environ.get("MARKETLENS_CATALOG_BACKEND", "json")
+    if catalog_backend == "postgres":
+        catalog = _load_catalog_from_postgres()
+        init_catalog(catalog)
+        logger.info("Loaded %d products from PostgreSQL", len(catalog))
+        return
+
+    # Default: JSON backend
     real_data_path = Path("data/processed/electronics_2000.json")
     fixture_path = Path(__file__).parent.parent / "fixtures" / "electronics_sample.json"
 

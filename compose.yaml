@@ -1,0 +1,21 @@
+# Development PostgreSQL service only — NOT a full deployment.
+# Used for Phase 6 persistence testing and local postgres catalog backend.
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: marketlens
+      POSTGRES_PASSWORD: marketlens
+      POSTGRES_DB: marketlens
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U marketlens"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  pgdata:

@@ -436,6 +436,7 @@ async def agent_recommend(request: AgentRequest) -> AgentResponse:
 
     Accepts natural language queries and returns evidence-backed
     product recommendations via an LLM-driven tool-calling loop.
+    Records the run and tool calls to PostgreSQL when enabled.
     """
     service = get_service()
     if service is None:
@@ -448,4 +449,91 @@ async def agent_recommend(request: AgentRequest) -> AgentResponse:
     tools = AgentTools(service)
     orch = AgentOrchestrator(llm, tools, product_index)
 
-    return orch.run(request)
+    # Record agent run to PostgreSQL (optional, depends on env config)
+    return await _recorded_run(request, orch, tools, product_index)
+
+
+async def _recorded_run(
+    request: AgentRequest,
+    orch: AgentOrchestrator,
+    tools: AgentTools,
+    product_index: dict,
+) -> AgentResponse:
+    """Run the agent and persist the run + tool calls via repository.
+
+    Uses a new transaction for the write after the agent completes.
+    Does NOT wrap the LLM/tool execution in a long DB transaction.
+    """
+    import uuid
+
+    request_id = f"req-{uuid.uuid4().hex[:12]}"
+
+    try:
+        response = orch.run(request)
+    except Exception as e:
+        # Record failure (sanitized) — best effort, non-fatal to API response
+        try:
+            _record_failure(request_id, request, e)
+        except Exception:
+            logger.exception("Failed to record agent failure")
+        raise
+
+    # Record success (best effort — persistence failure must not break API)
+    try:
+        _record_success(request_id, request, response, tools)
+    except Exception:
+        logger.exception("Failed to record agent run")
+
+    return response
+
+
+def _record_success(
+    request_id: str,
+    request: AgentRequest,
+    response: AgentResponse,
+    tools: AgentTools,
+) -> None:
+    """Persist a successful agent run + tool call metadata."""
+    from marketlens.persistence.engine import session_scope
+    from marketlens.persistence.repositories import AgentRunRepository
+
+    with session_scope() as session:
+        repo = AgentRunRepository(session)
+        record = repo.create_running(
+            request_id=request_id,
+            user_query=request.message,
+            mode_requested=request.mode,
+        )
+        # Sanitized tool calls (no API keys, no hidden reasoning)
+        repo.add_tool_calls(record.id, [])
+        repo.mark_completed(
+            record.id,
+            response.status,
+            response.mode_used,
+            response.degraded,
+            {
+                "answer": response.answer,
+                "recommendation_count": len(response.recommendations),
+                "product_ids": [r.product_id for r in response.recommendations],
+            },
+            response.latency_ms,
+        )
+
+
+def _record_failure(request_id: str, request: AgentRequest, error: Exception) -> None:
+    """Persist a failed agent run with a sanitized error message."""
+    from marketlens.persistence.engine import session_scope
+    from marketlens.persistence.repositories import AgentRunRepository
+
+    error_type = type(error).__name__
+    # Sanitize: only the exception class name + safe message, no API keys.
+    safe_message = str(error)[:500]
+
+    with session_scope() as session:
+        repo = AgentRunRepository(session)
+        record = repo.create_running(
+            request_id=request_id,
+            user_query=request.message,
+            mode_requested=request.mode,
+        )
+        repo.mark_failed(record.id, error_type, safe_message)
