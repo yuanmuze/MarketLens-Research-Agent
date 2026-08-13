@@ -1,5 +1,4 @@
-# Development PostgreSQL service only — NOT a full deployment.
-# Used for Phase 6 persistence testing and local postgres catalog backend.
+# Development services — NOT a full deployment.
 services:
   db:
     image: pgvector/pgvector:pg16
@@ -16,6 +15,25 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+
+  api:
+    build: .
+    environment:
+      MARKETLENS_DATABASE_URL: "postgresql+psycopg2://marketlens:marketlens@db:5432/marketlens"
+      MARKETLENS_CATALOG_BACKEND: "json"
+      MARKETLENS_USE_FAKE_EMBEDDINGS: "true"
+    ports:
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/live')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
 
 volumes:
   pgdata:

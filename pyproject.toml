@@ -113,6 +113,7 @@ exclude = [
 "tests/*" = ["D", "UP"]
 "src/marketlens/evaluation/benchmark.py" = ["T201"]
 "scripts/demo_retrieval.py" = ["T201", "D"]
+"scripts/load_test.py" = ["T201"]
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"

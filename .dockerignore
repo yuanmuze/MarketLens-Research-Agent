@@ -1,0 +1,27 @@
+# Never copy these into the image
+.git
+.gitignore
+.env
+.env.*
+.venv
+__pycache__
+*.pyc
+.pytest_cache
+.ruff_cache
+.mypy_cache
+
+# Data / caches / artifacts
+data/
+*.db
+*.sqlite3
+data/cache/
+data/eval/
+data/processed/
+reports/
+docs/
+tests/
+*.log
+
+# Docker data (never copy host Docker Desktop WSL dirs)
+Docker/
+DockerDesktopWSL/

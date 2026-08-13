@@ -1,19 +1,29 @@
-FROM python:3.11-slim
+# MarketLens API image (Python 3.12, non-root).
+FROM python:3.12-slim
+
+# Non-root user for security
+RUN useradd --create-home --shell /bin/bash appuser
 
 WORKDIR /app
 
-# Install system deps
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
-    && rm -rf /var/lib/apt/lists/*
-
-# Install Python deps
-COPY pyproject.toml ./
-RUN pip install --no-cache-dir -e ".[dev]" || pip install --no-cache-dir fastapi uvicorn sqlalchemy psycopg2-binary pydantic langgraph langchain-core
-
-# Copy source
+# Copy source (marketlens package is importable via PYTHONPATH)
 COPY src/ src/
-COPY tests/ tests/
+COPY alembic/ alembic/
+COPY alembic.ini ./
 
-# Run API
+# Install runtime dependencies directly (avoids building the project wheel,
+# which references the tests/ directory excluded from the image).
+RUN pip install --no-cache-dir \
+    fastapi uvicorn pydantic pydantic-settings \
+    sqlalchemy alembic psycopg2-binary pgvector \
+    langchain-core langchain langgraph httpx numpy
+
+# marketlens package lives under src/
+ENV PYTHONPATH=/app/src
+
+# Switch to non-root
+USER appuser
+
+EXPOSE 8000
+
 CMD ["uvicorn", "marketlens.api.main:app", "--host", "0.0.0.0", "--port", "8000"]

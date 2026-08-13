@@ -9,45 +9,59 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version: ["3.11"]
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: marketlens
+          POSTGRES_PASSWORD: marketlens
+          POSTGRES_DB: marketlens_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U marketlens"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python
+      - name: Set up Python 3.12
         uses: actions/setup-python@v5
         with:
-          python-version: ${{ matrix.python-version }}
+          python-version: "3.12"
 
       - name: Install uv
         run: pip install uv
 
+      - name: Cache uv
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/uv
+          key: ${{ runner.os }}-uv-${{ hashFiles('uv.lock') }}
+
       - name: Install dependencies
-        run: uv sync
+        run: uv sync --extra dev --extra data --extra embeddings --extra db
 
-      - name: Run ruff linting
-        run: uv run ruff check src/marketlens/ tests/
+      - name: Ruff
+        run: uv run ruff check .
 
-      - name: Run pytest
-        run: uv run pytest tests/ -v --ignore=tests/extract_langsmith_data.py --ignore=tests/run_evaluate.py --ignore=tests/supervisor_parallel_evaluation.py --ignore=tests/pairwise_evaluation.py --ignore=tests/evaluators.py --ignore=tests/prompts.py
+      - name: Mypy
+        run: uv run mypy src scripts
 
-      - name: Run evaluation benchmark
-        run: uv run pytest tests/test_evaluation.py -v
-
-  docker-check:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Validate docker-compose config
+      - name: Run migrations
+        env:
+          MARKETLENS_DATABASE_URL: postgresql+psycopg2://marketlens:marketlens@localhost:5432/marketlens_test
         run: |
-          python -c "
-          import yaml
-          with open('docker-compose.yml') as f:
-              config = yaml.safe_load(f)
-          assert 'services' in config
-          assert 'api' in config['services']
-          assert 'db' in config['services']
-          print('docker-compose.yml is valid')
-          "
+          uv run alembic upgrade head
+          uv run alembic current
+          uv run alembic check
+
+      - name: Unit tests (no real LLM)
+        run: uv run pytest -q -rs
+
+      - name: PostgreSQL integration tests
+        env:
+          MARKETLENS_TEST_DATABASE_URL: postgresql+psycopg2://marketlens:marketlens@localhost:5432/marketlens_test
+        run: uv run pytest -m postgres -q
