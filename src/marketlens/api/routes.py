@@ -459,55 +459,78 @@ async def _recorded_run(
     tools: AgentTools,
     product_index: dict,
 ) -> AgentResponse:
-    """Run the agent and persist the run + tool calls via repository.
+    """Run the agent and persist run + tool calls with correct transaction timing.
 
-    Uses a new transaction for the write after the agent completes.
-    Does NOT wrap the LLM/tool execution in a long DB transaction.
+    Timing (correct):
+      1. Short transaction A: create status=running record, commit/release.
+      2. No DB transaction: execute LLM + tool calls.
+      3. Short transaction B (success): write tool_calls + final status,
+         commit together.
+      4. Short transaction C (failure): update SAME record to failed.
     """
     import uuid
 
     request_id = f"req-{uuid.uuid4().hex[:12]}"
 
+    # 1. Create running record BEFORE agent execution (short tx A)
+    run_id = _create_running_record(request_id, request)
+
     try:
         response = orch.run(request)
     except Exception as e:
-        # Record failure (sanitized) — best effort, non-fatal to API response
+        # 4. Update the SAME running record to failed (short tx C)
         try:
-            _record_failure(request_id, request, e)
+            _mark_run_failed(run_id, e)
         except Exception:
             logger.exception("Failed to record agent failure")
         raise
 
-    # Record success (best effort — persistence failure must not break API)
+    # 3. Update the SAME record to final status + write tool calls (short tx B)
     try:
-        _record_success(request_id, request, response, tools)
+        _mark_run_completed(run_id, response, orch)
     except Exception:
-        logger.exception("Failed to record agent run")
+        logger.exception("Failed to record agent run completion")
 
     return response
 
 
-def _record_success(
-    request_id: str,
-    request: AgentRequest,
+def _create_running_record(request_id: str, request: AgentRequest) -> int | None:
+    """Create a running record in a short transaction; return its DB id."""
+    from marketlens.persistence.engine import session_scope
+    from marketlens.persistence.repositories import AgentRunRepository
+
+    try:
+        with session_scope() as session:
+            repo = AgentRunRepository(session)
+            record = repo.create_running(
+                request_id=request_id,
+                user_query=request.message,
+                mode_requested=request.mode,
+            )
+            session.commit()
+            return record.id
+    except Exception:
+        logger.exception("Failed to create running record (persistence unavailable)")
+        return None
+
+
+def _mark_run_completed(
+    run_id: int | None,
     response: AgentResponse,
-    tools: AgentTools,
+    orch: AgentOrchestrator,
 ) -> None:
-    """Persist a successful agent run + tool call metadata."""
+    """Update the running record to final status + write tool calls."""
+    if run_id is None:
+        return
     from marketlens.persistence.engine import session_scope
     from marketlens.persistence.repositories import AgentRunRepository
 
     with session_scope() as session:
         repo = AgentRunRepository(session)
-        record = repo.create_running(
-            request_id=request_id,
-            user_query=request.message,
-            mode_requested=request.mode,
-        )
         # Sanitized tool calls (no API keys, no hidden reasoning)
-        repo.add_tool_calls(record.id, [])
+        repo.add_tool_calls(run_id, orch.tool_call_log)
         repo.mark_completed(
-            record.id,
+            run_id,
             response.status,
             response.mode_used,
             response.degraded,
@@ -520,20 +543,16 @@ def _record_success(
         )
 
 
-def _record_failure(request_id: str, request: AgentRequest, error: Exception) -> None:
-    """Persist a failed agent run with a sanitized error message."""
+def _mark_run_failed(run_id: int | None, error: Exception) -> None:
+    """Update the running record to failed with a sanitized error message."""
+    if run_id is None:
+        return
     from marketlens.persistence.engine import session_scope
     from marketlens.persistence.repositories import AgentRunRepository
 
     error_type = type(error).__name__
-    # Sanitize: only the exception class name + safe message, no API keys.
-    safe_message = str(error)[:500]
+    safe_message = str(error)[:500]  # Sanitized: no API keys / hidden reasoning
 
     with session_scope() as session:
         repo = AgentRunRepository(session)
-        record = repo.create_running(
-            request_id=request_id,
-            user_query=request.message,
-            mode_requested=request.mode,
-        )
-        repo.mark_failed(record.id, error_type, safe_message)
+        repo.mark_failed(run_id, error_type, safe_message)

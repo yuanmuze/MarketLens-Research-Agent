@@ -12,6 +12,7 @@ from marketlens.persistence.converters import (
     record_to_product,
 )
 from marketlens.persistence.models import (
+    AgentRunRecord,
     AgentToolCallRecord,
     Base,
 )
@@ -220,3 +221,40 @@ class TestAgentRunRepository:
             session.rollback()
         # Tool calls should not be persisted
         assert repo.get_tool_calls(record.id) == []
+
+    def test_same_record_running_to_completed(self, session) -> None:
+        """mark_completed updates the SAME record, does not insert a second."""
+        repo = AgentRunRepository(session)
+        record = repo.create_running("req-006", "test", "balanced")
+        session.commit()
+        original_id = record.id
+
+        # Same record id updated to completed
+        repo.mark_completed(record.id, "completed", "hybrid", False, {"answer": "x"}, 10.0)
+        session.commit()
+
+        from sqlalchemy import func, select
+        count = session.scalar(select(func.count()).select_from(AgentRunRecord))
+        assert count == 1  # No duplicate
+        fetched = repo.get_by_request_id("req-006")
+        assert fetched is not None
+        assert fetched.id == original_id  # Same record
+        assert fetched.status == "completed"
+
+    def test_failed_updates_same_record(self, session) -> None:
+        """mark_failed updates the SAME running record, no duplicate failed."""
+        repo = AgentRunRepository(session)
+        record = repo.create_running("req-007", "test", "balanced")
+        session.commit()
+        original_id = record.id
+
+        repo.mark_failed(record.id, "TimeoutError", "timed out")
+        session.commit()
+
+        from sqlalchemy import func, select
+        count = session.scalar(select(func.count()).select_from(AgentRunRecord))
+        assert count == 1  # No duplicate failed record
+        fetched = repo.get_by_request_id("req-007")
+        assert fetched is not None
+        assert fetched.id == original_id
+        assert fetched.status == "failed"

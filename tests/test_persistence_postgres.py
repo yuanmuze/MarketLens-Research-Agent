@@ -22,10 +22,25 @@ pytestmark = pytest.mark.postgres
 
 
 def _require_test_db() -> str:
-    """Return test DB URL or skip."""
+    """Return test DB URL, enforcing postgresql dialect + 'test' name.
+
+    Guards against accidentally connecting to SQLite, a dev DB, or a
+    production DB. Refuses any URL whose dialect is not postgresql or
+    whose database name does not contain 'test'.
+    """
     if not TEST_DB_URL:
         pytest.skip("MARKETLENS_TEST_DATABASE_URL not set — skipping PostgreSQL integration test")
-    return TEST_DB_URL
+
+    url = TEST_DB_URL
+    assert url.startswith("postgresql"), (
+        f"MARKETLENS_TEST_DATABASE_URL must use postgresql dialect, got: {url.split('://')[0]}"
+    )
+    # Extract database name (path after the last '/')
+    db_name = url.rsplit("/", 1)[-1].split("?")[0]
+    assert "test" in db_name.lower(), (
+        f"MARKETLENS_TEST_DATABASE_URL must target a 'test' database, got: {db_name}"
+    )
+    return url
 
 
 @pytest.fixture

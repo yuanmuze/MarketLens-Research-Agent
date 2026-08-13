@@ -53,7 +53,7 @@ dependencies = [
 dev = ["mypy>=1.11.1", "ruff>=0.6.1", "pytest-mock>=3.12.0"]
 embeddings = ["sentence-transformers>=2.2.0"]
 data = ["datasets>=2.14.0"]
-db = ["sqlalchemy>=2.0", "alembic>=1.13", "asyncpg>=0.29", "psycopg2-binary>=2.9"]
+db = ["sqlalchemy>=2.0", "alembic>=1.13", "psycopg2-binary>=2.9"]
 
 [build-system]
 requires = ["setuptools>=73.0.0", "wheel"]

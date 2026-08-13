@@ -61,6 +61,10 @@ class AgentOrchestrator:
         self._verifier = EvidenceVerifier(product_index)
         self._max_steps = max_steps
         self._max_tool_calls = max_tool_calls
+        # Observability: records executed tool calls (not decision logic).
+        # Each entry: step_number, tool_name, arguments, result_product_ids,
+        # success, error_type. Reset at the start of each run().
+        self.tool_call_log: list[dict[str, Any]] = []
 
     def run(self, request: AgentRequest) -> AgentResponse:
         """Run the agent on a user request.
@@ -76,6 +80,7 @@ class AgentOrchestrator:
         warnings: list[str] = []
         tool_call_count = 0
         mode_used = MODE_MAP.get(request.mode, "hybrid")
+        self.tool_call_log = []  # Reset per run
 
         # --- Step 1: Build initial messages ---
         system_msg = AGENT_SYSTEM_PROMPT.format(mode=request.mode)
@@ -136,6 +141,15 @@ class AgentOrchestrator:
                         "arguments": targs,
                         "result": result,
                     })
+                    # Record observability (sanitized args only)
+                    self.tool_call_log.append({
+                        "step_number": step + 1,
+                        "tool_name": tname,
+                        "arguments": _sanitize_args(targs),
+                        "result_product_ids": _extract_product_ids(result),
+                        "success": True,
+                        "error_type": None,
+                    })
                     messages.append({
                         "role": "tool",
                         "tool_call_id": tc.get("id", f"call_{step}"),
@@ -151,6 +165,14 @@ class AgentOrchestrator:
                     })
                     warnings.append(f"Tool error ({tname}): {e}")
                     tool_call_count += 1
+                    self.tool_call_log.append({
+                        "step_number": step + 1,
+                        "tool_name": tname,
+                        "arguments": _sanitize_args(targs),
+                        "result_product_ids": [],
+                        "success": False,
+                        "error_type": "ValueError",
+                    })
 
         # --- Evidence verification ---
         recommendations = _build_recommendations(tool_results_for_evidence, final_text)
@@ -317,3 +339,26 @@ def _serialize_result(result: Any) -> str:
         return json.dumps(result, default=str, indent=2)
     except Exception:
         return str(result)
+
+
+def _sanitize_args(args: dict[str, Any]) -> dict[str, Any]:
+    """Return a shallow sanitized copy of tool args (no keys/secrets)."""
+    if not isinstance(args, dict):
+        return {}
+    return {str(k): v for k, v in args.items()}
+
+
+def _extract_product_ids(result: Any) -> list[str]:
+    """Extract product IDs from a tool result for audit logging."""
+    ids: list[str] = []
+    # search_catalog → SearchCatalogResult.results
+    if hasattr(result, "results"):
+        for item in result.results:
+            if hasattr(item, "product_id"):
+                ids.append(str(item.product_id))
+    # get_product_details / compare_products → .products
+    if hasattr(result, "products"):
+        for p in result.products:
+            if hasattr(p, "product_id"):
+                ids.append(str(p.product_id))
+    return ids

@@ -32,17 +32,50 @@ repositories instead of embedding SQL. This:
 
 ## Transaction Boundaries
 
-- Agent request start → `create_running` in its own short transaction
-- Agent execution → runs OUTSIDE any DB transaction (LLM + tool calls
-  can take seconds and should not hold a connection)
-- Agent completion → a NEW transaction writes final response + tool calls
-- Agent failure → rollback the failed write, then a NEW transaction
-  marks the run `failed` with a sanitized error
+Correct agent run timing (verified in Phase 6.1):
+
+```text
+Short transaction A:  create status=running record → commit/release
+No DB transaction:    execute LLM + tool calls
+Short transaction B:  write tool_calls + final status → commit together
+   (or, on failure)
+Short transaction C:  update SAME record → status=failed → commit
+```
+
+The running record is created BEFORE agent execution, so it is queryable
+during execution. The SAME record is updated to `completed`/`degraded`/
+`no_results`/`needs_clarification` (or `failed`), never a duplicate row.
 
 **Why not wrap external model calls in a long DB transaction**: holding
 a database transaction open during an LLM call (seconds) blocks other
 writers, risks connection exhaustion, and can cause long lock waits.
 Instead: short transactions only at the persistence points.
+
+## Driver Usage
+
+- SQLAlchemy uses a **synchronous** `Engine` (`create_engine`) and
+  synchronous `Session`.
+- PostgreSQL driver: **psycopg2** (via `postgresql+psycopg2://`).
+- Alembic uses the same synchronous engine, so it also uses psycopg2.
+- `asyncpg` was removed in Phase 6.1 — it was declared but never used
+  (the persistence layer is fully synchronous).
+
+## PostgreSQL Validation Status (Phase 6.1)
+
+**BLOCKED — no PostgreSQL server available in this environment.**
+No Docker, no `psql`/`pg_isready`, no local PostgreSQL install, no
+listening port on 5432/5433. The real-DB freeze validation (migration
+upgrade/downgrade/check against PostgreSQL, and running the `-m postgres`
+integration tests) could not be executed.
+
+What was verified instead:
+- Migration upgrade/downgrade/check against a dedicated SQLite test DB
+- 14 repository unit tests (in-memory SQLite) covering upsert idempotency,
+  FK cascade, transaction rollback, request_id uniqueness, and
+  running→completed/failed same-record timing
+- 4 PostgreSQL integration tests are written and correctly skip when
+  `MARKETLENS_TEST_DATABASE_URL` is unset (with a safety guard asserting
+  postgresql dialect + database name containing "test")
 
 ## Error Sanitization
 

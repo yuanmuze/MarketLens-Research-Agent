@@ -199,6 +199,10 @@ print(generate_markdown_report(reports, queries))
 
 ### Start a development PostgreSQL
 
+> The persistence layer uses a **synchronous** SQLAlchemy engine with the
+> **psycopg2** driver (`postgresql+psycopg2://`). Alembic uses the same
+> engine/driver.
+
 ```bash
 # Start dev PostgreSQL 16 (development only, not full deployment)
 docker compose up -d db
