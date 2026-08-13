@@ -15,26 +15,32 @@ from sqlalchemy import create_engine
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
-DATABASE_URL = os.environ.get(
-    "MARKETLENS_DATABASE_URL",
-    "sqlite:///marketlens_persistence.db",
-)
-
-# Catalog backend: json (default) or postgres
-CATALOG_BACKEND = os.environ.get("MARKETLENS_CATALOG_BACKEND", "json")
-
 _engine: Engine | None = None
 _SessionLocal: sessionmaker[Session] | None = None
+
+
+def get_database_url() -> str:
+    """Return the current DB URL from environment (read dynamically)."""
+    return os.environ.get(
+        "MARKETLENS_DATABASE_URL",
+        "sqlite:///marketlens_persistence.db",
+    )
+
+
+def get_catalog_backend() -> str:
+    """Return the catalog backend (json default, or postgres)."""
+    return os.environ.get("MARKETLENS_CATALOG_BACKEND", "json")
 
 
 def get_engine() -> Engine:
     """Return a process-wide SQLAlchemy engine (lazy, cached)."""
     global _engine
     if _engine is None:
+        url = get_database_url()
         connect_args: dict = {}
-        if DATABASE_URL.startswith("sqlite"):
+        if url.startswith("sqlite"):
             connect_args = {"check_same_thread": False}
-        _engine = create_engine(DATABASE_URL, connect_args=connect_args, echo=False)
+        _engine = create_engine(url, connect_args=connect_args, echo=False)
     return _engine
 
 

@@ -45,7 +45,7 @@ def upgrade() -> None:
     op.create_table(
         "agent_runs",
         sa.Column("id", sa.Integer(), primary_key=True, autoincrement=True),
-        sa.Column("request_id", sa.String(64), nullable=False, unique=True),
+        sa.Column("request_id", sa.String(64), nullable=False),
         sa.Column("user_query", sa.Text(), nullable=False),
         sa.Column("status", sa.String(32), nullable=False, server_default="running"),
         sa.Column("mode_requested", sa.String(16), nullable=False, server_default="balanced"),

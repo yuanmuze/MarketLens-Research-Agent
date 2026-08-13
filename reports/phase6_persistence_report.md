@@ -60,22 +60,48 @@ Instead: short transactions only at the persistence points.
 - `asyncpg` was removed in Phase 6.1 — it was declared but never used
   (the persistence layer is fully synchronous).
 
-## PostgreSQL Validation Status (Phase 6.1)
+## PostgreSQL Validation Status (Phase 6.2 — real DB freeze)
 
-**BLOCKED — no PostgreSQL server available in this environment.**
-No Docker, no `psql`/`pg_isready`, no local PostgreSQL install, no
-listening port on 5432/5433. The real-DB freeze validation (migration
-upgrade/downgrade/check against PostgreSQL, and running the `-m postgres`
-integration tests) could not be executed.
+**PASSED — PostgreSQL 16.14 via Docker Compose.**
 
-What was verified instead:
-- Migration upgrade/downgrade/check against a dedicated SQLite test DB
-- 14 repository unit tests (in-memory SQLite) covering upsert idempotency,
-  FK cascade, transaction rollback, request_id uniqueness, and
-  running→completed/failed same-record timing
-- 4 PostgreSQL integration tests are written and correctly skip when
-  `MARKETLENS_TEST_DATABASE_URL` is unset (with a safety guard asserting
-  postgresql dialect + database name containing "test")
+- Docker Desktop 29.7.2, Docker Compose v5.3.1
+- Service: `db` (postgres:16), port 5432→5432, healthy
+- Test database: `marketlens_test` (separate from `marketlens` dev DB)
+- Driver: psycopg2 (synchronous)
+
+### Migration (real PostgreSQL)
+
+```
+alembic upgrade head   → Running upgrade -> 0001_initial ✓
+alembic current        → 0001_initial (head) ✓
+alembic check          → No new upgrade operations detected ✓
+alembic downgrade base → Running downgrade ✓ (dedicated test DB only)
+alembic upgrade head   → Running upgrade ✓
+```
+
+ORM metadata and migration are consistent (fixed a `request_id`
+UniqueConstraint vs unique-index drift in the migration).
+
+### Verified schema (via SQLAlchemy Inspector)
+
+- Tables: products, agent_runs, agent_tool_calls
+- Primary keys: products.product_id, agent_runs.id, agent_tool_calls.id
+- request_id unique index (ix_agent_runs_request_id)
+- agent_run_id FK with ON DELETE CASCADE
+- Indexes: brand, price, rating, request_id, agent_run_id
+- JSONB fields: metadata, constraints, response, arguments, result_product_ids
+- Numeric fields: price NUMERIC(12,2), rating NUMERIC(3,2), latency_ms NUMERIC(12,2)
+
+### PostgreSQL integration tests (11 passed)
+
+```
+uv run pytest -m postgres -q → 11 passed (not skipped)
+```
+
+Covers: upsert idempotency, ORM→Pydantic, JSONB roundtrip, Decimal/Numeric
+precision, request_id unique constraint, ON DELETE CASCADE, transaction
+rollback, running→completed/failed, postgres catalog backend, Fake LLM
+API request recording AgentRun + ToolCall.
 
 ## Error Sanitization
 
