@@ -2,7 +2,7 @@
 # Used for Phase 6 persistence testing and local postgres catalog backend.
 services:
   db:
-    image: postgres:16
+    image: pgvector/pgvector:pg16
     environment:
       POSTGRES_USER: marketlens
       POSTGRES_PASSWORD: marketlens

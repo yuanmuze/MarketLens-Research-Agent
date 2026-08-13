@@ -15,6 +15,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from decimal import Decimal
 
+from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
     JSON,
     Boolean,
@@ -25,6 +26,7 @@ from sqlalchemy import (
     Numeric,
     String,
     Text,
+    UniqueConstraint,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
@@ -114,3 +116,33 @@ class AgentToolCallRecord(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, nullable=False)
 
     agent_run: Mapped[AgentRunRecord] = relationship(back_populates="tool_calls")
+
+
+class ProductEmbeddingRecord(Base):
+    """Product embedding vector (pgvector), versioned by model name."""
+
+    __tablename__ = "product_embeddings"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    product_id: Mapped[str] = mapped_column(
+        ForeignKey("products.product_id", ondelete="CASCADE"), nullable=False
+    )
+    model_name: Mapped[str] = mapped_column(String(256), nullable=False)
+    dim: Mapped[int] = mapped_column(Integer, nullable=False)
+    embedding: Mapped[list] = mapped_column(Vector(384), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=_utcnow, onupdate=_utcnow, nullable=False
+    )
+
+    __table_args__ = (
+        UniqueConstraint("product_id", "model_name", name="uq_product_embedding"),
+        Index("ix_product_embeddings_product_id", "product_id"),
+        Index("ix_product_embeddings_model", "model_name"),
+        Index(
+            "ix_product_embeddings_embedding_cosine",
+            "embedding",
+            postgresql_using="hnsw",
+            postgresql_ops={"embedding": "vector_cosine_ops"},
+        ),
+    )

@@ -18,6 +18,7 @@ from marketlens.persistence.converters import product_to_record, record_to_produ
 from marketlens.persistence.models import (
     AgentRunRecord,
     AgentToolCallRecord,
+    ProductEmbeddingRecord,
     ProductRecord,
 )
 
@@ -197,3 +198,83 @@ class AgentRunRepository:
             .order_by(AgentToolCallRecord.step_number, AgentToolCallRecord.id)
         )
         return list(self._session.scalars(stmt).all())
+
+
+class ProductEmbeddingRepository:
+    """pgvector embedding storage + cosine search."""
+
+    def __init__(self, session: Session) -> None:
+        """Initialize with a SQLAlchemy session."""
+        self._session = session
+
+    def upsert_many(
+        self,
+        product_ids: list[str],
+        embeddings: list[list[float]],
+        model_name: str,
+        dim: int,
+    ) -> dict[str, int]:
+        """Batch-upsert embeddings (idempotent per product_id + model_name).
+
+        Raises on dimension mismatch. Returns inserted/updated/unchanged counts.
+        """
+        if len(product_ids) != len(embeddings):
+            raise ValueError(
+                f"product_ids ({len(product_ids)}) and embeddings ({len(embeddings)}) length mismatch"
+            )
+        for emb in embeddings:
+            if len(emb) != dim:
+                raise ValueError(
+                    f"Embedding dimension {len(emb)} != expected {dim}"
+                )
+
+        inserted = 0
+        updated = 0
+        unchanged = 0
+        for pid, emb in zip(product_ids, embeddings):
+            existing = self._session.query(ProductEmbeddingRecord).filter_by(
+                product_id=pid, model_name=model_name
+            ).first()
+            if existing is None:
+                self._session.add(ProductEmbeddingRecord(
+                    product_id=pid,
+                    model_name=model_name,
+                    dim=dim,
+                    embedding=emb,
+                ))
+                inserted += 1
+            else:
+                if existing.embedding != emb or existing.dim != dim:
+                    existing.embedding = emb
+                    existing.dim = dim
+                    updated += 1
+                else:
+                    unchanged += 1
+
+        return {"inserted": inserted, "updated": updated, "unchanged": unchanged}
+
+    def count(self, model_name: str | None = None) -> int:
+        """Count stored embeddings, optionally filtered by model."""
+        q = self._session.query(ProductEmbeddingRecord)
+        if model_name:
+            q = q.filter(ProductEmbeddingRecord.model_name == model_name)
+        return q.count()
+
+    def search(
+        self,
+        query_embedding: list[float],
+        top_k: int = 20,
+        model_name: str | None = None,
+    ) -> list[tuple[str, float]]:
+        """Cosine similarity top-k search (1 - cosine distance)."""
+        q = self._session.query(
+            ProductEmbeddingRecord.product_id,
+            (1.0 - ProductEmbeddingRecord.embedding.cosine_distance(query_embedding)).label("similarity"),
+        )
+        if model_name:
+            q = q.filter(ProductEmbeddingRecord.model_name == model_name)
+        q = q.order_by(
+            ProductEmbeddingRecord.embedding.cosine_distance(query_embedding)
+        ).limit(top_k)
+
+        return [(pid, float(sim)) for pid, sim in q.all()]
