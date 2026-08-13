@@ -357,3 +357,100 @@ class TestAgentRunRecording:
             assert len(tool_calls) >= 1
             assert tool_calls[0].tool_name == "search_catalog"
         reset_engine()
+
+    def test_request_hash_deterministic(self) -> None:
+        """Same content → same hash; different content → different hash."""
+        from marketlens.agent.models import AgentRequest
+        from marketlens.api.routes import _compute_request_hash
+
+        r1 = AgentRequest(message="best headphones", mode="balanced", max_results=3)
+        r2 = AgentRequest(message="best headphones", mode="balanced", max_results=3)
+        r3 = AgentRequest(message="different query", mode="balanced", max_results=3)
+
+        assert _compute_request_hash(r1) == _compute_request_hash(r2)
+        assert _compute_request_hash(r1) != _compute_request_hash(r3)
+
+
+class TestIdempotency:
+    """request_id idempotency and conflict detection."""
+
+    def test_same_request_id_same_content_replay(self, monkeypatch) -> None:
+        """Same request_id + same content returns existing stored result."""
+        _require_test_db()
+        import asyncio
+
+        from marketlens.agent.models import AgentRequest
+        from marketlens.agent.orchestrator import AgentOrchestrator
+        from marketlens.agent.providers.base import FakeLLMClient
+        from marketlens.agent.tools import AgentTools
+        from marketlens.catalog import ProductCatalog
+        from marketlens.persistence.engine import reset_engine, session_scope
+        from marketlens.persistence.repositories import AgentRunRepository
+        from marketlens.retrieval.embedding import FakeEmbeddingBackend
+        from marketlens.retrieval.service import RetrievalService
+
+        monkeypatch.setenv("MARKETLENS_DATABASE_URL", TEST_DB_URL)
+        reset_engine()
+
+        catalog = ProductCatalog.from_fixture("electronics_sample.json")
+        service = RetrievalService(catalog, embedding_backend=FakeEmbeddingBackend(dim=16, seed=1))
+        service.initialize()
+        tools = AgentTools(service)
+        orch = AgentOrchestrator(
+            FakeLLMClient([{"content": "done."}]),
+            tools,
+            service._product_index,
+        )
+
+        from marketlens.api.routes import _recorded_run
+        req = AgentRequest(message="best headphones", mode="balanced", request_id="idem-001")
+
+        asyncio.run(_recorded_run(req, orch, tools, service._product_index))
+        # Second call with SAME request_id + same content → replay, no new record
+        asyncio.run(_recorded_run(req, orch, tools, service._product_index))
+
+        with session_scope() as s:
+            repo = AgentRunRepository(s)
+            run = repo.get_by_request_id("idem-001")
+            assert run is not None
+            assert run.status == "completed"
+        reset_engine()
+
+    def test_same_request_id_different_content_conflict(self, monkeypatch) -> None:
+        """Same request_id + different content → 409 conflict."""
+        _require_test_db()
+        import asyncio
+
+        import pytest
+
+        from marketlens.agent.models import AgentRequest
+        from marketlens.agent.orchestrator import AgentOrchestrator
+        from marketlens.agent.providers.base import FakeLLMClient
+        from marketlens.agent.tools import AgentTools
+        from marketlens.catalog import ProductCatalog
+        from marketlens.persistence.engine import reset_engine
+        from marketlens.retrieval.embedding import FakeEmbeddingBackend
+        from marketlens.retrieval.service import RetrievalService
+
+        monkeypatch.setenv("MARKETLENS_DATABASE_URL", TEST_DB_URL)
+        reset_engine()
+
+        catalog = ProductCatalog.from_fixture("electronics_sample.json")
+        service = RetrievalService(catalog, embedding_backend=FakeEmbeddingBackend(dim=16, seed=1))
+        service.initialize()
+        tools = AgentTools(service)
+        orch = AgentOrchestrator(
+            FakeLLMClient([{"content": "done."}]),
+            tools,
+            service._product_index,
+        )
+
+        from marketlens.api.routes import _recorded_run
+        req1 = AgentRequest(message="best headphones", mode="balanced", request_id="idem-002")
+        asyncio.run(_recorded_run(req1, orch, tools, service._product_index))
+
+        req2 = AgentRequest(message="different content", mode="balanced", request_id="idem-002")
+        with pytest.raises(Exception) as exc_info:
+            asyncio.run(_recorded_run(req2, orch, tools, service._product_index))
+        assert "409" in str(exc_info.value) or "conflict" in str(exc_info.value).lower()
+        reset_engine()

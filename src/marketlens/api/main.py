@@ -101,13 +101,13 @@ async def add_request_id(request: Request, call_next):
 # Error handler
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception) -> JSONResponse:
-    """Global error handler — returns structured error, never leaks stack traces."""
-    logger.error("Unhandled error on %s: %s", request.url.path, exc, exc_info=True)
+    """Global error handler — structured error, never leaks stack traces/keys."""
+    logger.error("Unhandled error on %s: %s", request.url.path, type(exc).__name__)
     return JSONResponse(
         status_code=500,
         content={
-            "error": "Internal server error",
-            "detail": "An unexpected error occurred",
+            "code": "internal_error",
+            "message": "An unexpected error occurred",
             "request_id": request.headers.get("X-Request-ID", "unknown"),
         },
     )

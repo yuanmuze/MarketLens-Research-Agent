@@ -79,6 +79,7 @@ class AgentRunRecord(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     request_id: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)
+    request_hash: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     user_query: Mapped[str] = mapped_column(Text, nullable=False)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="running")
     mode_requested: Mapped[str] = mapped_column(String(16), nullable=False, default="balanced")

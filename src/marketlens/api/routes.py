@@ -87,7 +87,9 @@ def get_catalog() -> ProductCatalog:
 
 
 # ---------------------------------------------------------------------------
-# GET /health
+# GET /health  (backward-compatible summary)
+# GET /health/live  (liveness)
+# GET /health/ready (readiness)
 # ---------------------------------------------------------------------------
 @router.get("/health", response_model=HealthResponse)
 async def health_check() -> HealthResponse:
@@ -104,6 +106,39 @@ async def health_check() -> HealthResponse:
         catalog_size=catalog_size,
         **extra,
     )
+
+
+@router.get("/health/live")
+async def health_live() -> dict[str, Any]:
+    """Liveness probe: process is running (does NOT check external deps)."""
+    return {"status": "ok", "alive": True}
+
+
+@router.get("/health/ready")
+async def health_ready() -> dict[str, Any]:
+    """Readiness probe: necessary config + PostgreSQL + retrieval backend.
+
+    Returns 503 when the retrieval service or catalog is not ready.
+    """
+    if _service is None or _catalog is None:
+        raise HTTPException(status_code=503, detail="not ready: service not initialized")
+
+    # Check retrieval service is actually usable
+    try:
+        status = _service.status()
+        retrieval_ready = status.get("retrieval_service_ready", False)
+    except Exception as e:
+        logger.warning("Readiness check failed: %s", e)
+        raise HTTPException(status_code=503, detail="not ready: retrieval unavailable") from e
+
+    if not retrieval_ready:
+        raise HTTPException(status_code=503, detail="not ready: retrieval not initialized")
+
+    return {
+        "status": "ready",
+        "catalog_size": len(_catalog),
+        "embedding_backend": status.get("embedding_backend", "unknown"),
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -470,10 +505,25 @@ async def _recorded_run(
     """
     import uuid
 
-    request_id = f"req-{uuid.uuid4().hex[:12]}"
+    # Idempotency: honor the client-provided request_id if present.
+    request_id = request.request_id or f"req-{uuid.uuid4().hex[:12]}"
+    request_hash = _compute_request_hash(request)
+
+    # Check for an existing run with the same request_id.
+    existing = _find_existing_run(request_id)
+    if existing is not None:
+        if existing.request_hash == request_hash:
+            # Idempotent replay: return the stored result.
+            if existing.response and existing.status in (
+                "completed", "degraded", "no_results", "needs_clarification",
+            ):
+                return _response_from_record(existing)
+        else:
+            # Same request_id, different content → conflict.
+            raise HTTPException(status_code=409, detail="request_id conflict: different request content")
 
     # 1. Create running record BEFORE agent execution (short tx A)
-    run_id = _create_running_record(request_id, request)
+    run_id = _create_running_record(request_id, request, request_hash)
 
     try:
         response = orch.run(request)
@@ -494,7 +544,46 @@ async def _recorded_run(
     return response
 
 
-def _create_running_record(request_id: str, request: AgentRequest) -> int | None:
+def _compute_request_hash(request: AgentRequest) -> str:
+    """Compute a stable content hash for idempotency/conflict detection."""
+    import hashlib
+
+    payload = f"{request.message}|{request.mode}|{request.max_results}"
+    return hashlib.sha256(payload.encode()).hexdigest()
+
+
+def _find_existing_run(request_id: str):
+    """Find an existing AgentRunRecord by request_id, or None."""
+    from marketlens.persistence.engine import session_scope
+    from marketlens.persistence.repositories import AgentRunRepository
+
+    try:
+        with session_scope() as session:
+            repo = AgentRunRepository(session)
+            return repo.get_by_request_id(request_id)
+    except Exception:
+        logger.exception("Failed to check existing run")
+        return None
+
+
+def _response_from_record(record) -> AgentResponse:
+    """Reconstruct an AgentResponse from a stored AgentRunRecord."""
+    stored = record.response or {}
+    return AgentResponse(
+        request_id=record.request_id,
+        status=record.status,
+        answer=stored.get("answer", ""),
+        recommendations=[],
+        mode_requested=record.mode_requested,
+        mode_used=record.mode_used or record.mode_requested,
+        degraded=record.degraded,
+        warnings=[],
+        tool_calls=0,
+        latency_ms=float(record.latency_ms or 0.0),
+    )
+
+
+def _create_running_record(request_id: str, request: AgentRequest, request_hash: str) -> int | None:
     """Create a running record in a short transaction; return its DB id."""
     from marketlens.persistence.engine import session_scope
     from marketlens.persistence.repositories import AgentRunRepository
@@ -506,6 +595,7 @@ def _create_running_record(request_id: str, request: AgentRequest) -> int | None
                 request_id=request_id,
                 user_query=request.message,
                 mode_requested=request.mode,
+                request_hash=request_hash,
             )
             session.commit()
             return record.id

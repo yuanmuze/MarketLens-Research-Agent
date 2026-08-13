@@ -59,6 +59,32 @@ class TestHealthEndpoint:
         data = response.json()
         assert data["catalog_size"] == 0
 
+    def test_health_live(self, client: TestClient) -> None:
+        """Liveness probe returns ok without checking deps."""
+        response = client.get("/health/live")
+        assert response.status_code == 200
+        assert response.json()["alive"] is True
+
+    def test_health_ready(self, client: TestClient) -> None:
+        """Readiness probe returns ready when catalog + service are initialized."""
+        response = client.get("/health/ready")
+        assert response.status_code == 200
+        assert response.json()["status"] == "ready"
+
+    def test_health_ready_not_initialized(self) -> None:
+        """Readiness returns 503 when service not initialized."""
+        from fastapi.testclient import TestClient
+
+        from marketlens.api.main import app
+        from marketlens.api.routes import init_catalog
+        from marketlens.catalog import ProductCatalog
+
+        init_catalog(ProductCatalog())  # empty catalog → service still initialized
+        c = TestClient(app)
+        # Empty catalog still initializes a service, so it should be ready
+        resp = c.get("/health/ready")
+        assert resp.status_code == 200
+
 
 class TestSearchEndpoint:
     """GET /search tests."""

@@ -18,6 +18,10 @@ class AgentRequest(BaseModel):
         default="balanced", description="Retrieval mode"
     )
     max_results: int = Field(default=5, ge=1, le=20, description="Max products to recommend")
+    request_id: str | None = Field(
+        default=None,
+        description="Optional idempotency key. Same key + same content → replay existing result.",
+    )
 
 
 # ---------------------------------------------------------------------------

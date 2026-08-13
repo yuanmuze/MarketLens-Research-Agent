@@ -113,6 +113,7 @@ class AgentRunRepository:
         user_query: str,
         mode_requested: str,
         constraints: dict[str, Any] | None = None,
+        request_hash: str | None = None,
     ) -> AgentRunRecord:
         """Create an agent run in 'running' status."""
         record = AgentRunRecord(
@@ -123,6 +124,7 @@ class AgentRunRepository:
             mode_used=None,
             degraded=False,
             constraints=constraints,
+            request_hash=request_hash,
             started_at=_utcnow(),
         )
         self._session.add(record)
