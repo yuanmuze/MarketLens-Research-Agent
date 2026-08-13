@@ -55,6 +55,10 @@ User Query → FastAPI → LangGraph Agent (8 nodes) → Hybrid Retrieval
 | `/research/jobs` | POST | Create async research job |
 | `/research/jobs/{id}` | GET | Get job status |
 | `/research/jobs/{id}/report` | GET | Get completed research report |
+| `/agent/recommend` | POST | Natural language → evidence-backed recommendations |
+| `/feedback` | POST | Record user feedback on an agent run |
+| `/health/live` | GET | Liveness probe (process alive) |
+| `/health/ready` | GET | Readiness probe (catalog + retrieval usable) |
 
 ## Project Structure
 
@@ -227,6 +231,19 @@ docker compose down
 
 > Never run `alembic downgrade` on a normal development database — it is
 > destructive. Only test downgrade on a dedicated throwaway test database.
+
+### Start the full stack (db + API) — one command
+
+```bash
+docker compose up -d
+# API: http://127.0.0.1:8000  |  liveness: /health/live  |  readiness: /health/ready
+```
+
+### Load test (local, hits the running Docker API)
+
+```bash
+uv run python scripts/load_test.py --base-url http://127.0.0.1:8000 --requests 200 --concurrency 10
+```
 
 ### Two catalog backends
 
