@@ -1,0 +1,46 @@
+{
+  "git_sha": "37495d909f4d2a5272d20434a15536428e10d632",
+  "base_url": "http://127.0.0.1:8000",
+  "requests_per_scenario": 100,
+  "scenarios": {
+    "retrieval": {
+      "path": "/search?q=headphones&top_k=5",
+      "requests": 100,
+      "concurrency": 10,
+      "success": 100,
+      "client_4xx": 0,
+      "server_5xx": 0,
+      "errors": 0,
+      "throughput_rps": 10.24,
+      "p50_ms": 969.0,
+      "p95_ms": 1016.0,
+      "p99_ms": 1016.0
+    },
+    "agent": {
+      "path": "/agent/recommend",
+      "requests": 100,
+      "concurrency": 10,
+      "success": 100,
+      "client_4xx": 0,
+      "server_5xx": 0,
+      "errors": 0,
+      "throughput_rps": 10.22,
+      "p50_ms": 969.0,
+      "p95_ms": 1016.0,
+      "p99_ms": 1031.0
+    },
+    "retrieval_concurrency_1": {
+      "path": "/search?q=headphones&top_k=5",
+      "requests": 100,
+      "concurrency": 1,
+      "success": 100,
+      "client_4xx": 0,
+      "server_5xx": 0,
+      "errors": 0,
+      "throughput_rps": 3.42,
+      "p50_ms": 297.0,
+      "p95_ms": 313.0,
+      "p99_ms": 344.0
+    }
+  }
+}

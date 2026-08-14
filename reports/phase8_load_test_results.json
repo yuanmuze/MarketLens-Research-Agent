@@ -1,0 +1,210 @@
+{
+  "acceptance": {
+    "all_http_200": true,
+    "all_payloads_valid": true,
+    "external_llm_calls": 0,
+    "no_memory_fallback": true,
+    "real_embeddings_only": true
+  },
+  "git_sha": "d5e69ae24d6073be7b9b9fcc51b045108c769ad4",
+  "profiles": [
+    {
+      "git_sha": "d5e69ae24d6073be7b9b9fcc51b045108c769ad4",
+      "image_id": "sha256:0e27929407bf23f45ad744c2fae48edc526510295e8381309b6ce3c19e762e00",
+      "profile": "memory",
+      "recorded_at_utc": "2026-08-14T07:28:02.525649+00:00",
+      "scenarios": [
+        {
+          "client_4xx": 0,
+          "concurrency": 1,
+          "invalid_payloads": {},
+          "p50_ms": 118.08,
+          "p95_ms": 129.51,
+          "p99_ms": 135.05,
+          "requests": 100,
+          "scenario": "hybrid",
+          "server_5xx": 0,
+          "status_counts": {
+            "200": 100
+          },
+          "success": 100,
+          "throughput_rps": 8.55,
+          "transport_errors": 0,
+          "wall_seconds": 11.702,
+          "warmup_requests_excluded": 5
+        },
+        {
+          "client_4xx": 0,
+          "concurrency": 10,
+          "invalid_payloads": {},
+          "p50_ms": 1193.22,
+          "p95_ms": 1249.29,
+          "p99_ms": 1493.62,
+          "requests": 100,
+          "scenario": "hybrid",
+          "server_5xx": 0,
+          "status_counts": {
+            "200": 100
+          },
+          "success": 100,
+          "throughput_rps": 8.31,
+          "transport_errors": 0,
+          "wall_seconds": 12.037,
+          "warmup_requests_excluded": 5
+        }
+      ],
+      "schema_version": 1,
+      "scope": "local Docker development benchmark; not a production claim",
+      "started_from_readiness": {
+        "catalog_backend": "postgres",
+        "catalog_size": 2000,
+        "embedding_backend": "memory",
+        "embedding_dim": 384,
+        "embedding_model": "all-MiniLM-L6-v2",
+        "semantic_backend": "memory",
+        "semantic_index_ready": true,
+        "semantic_indexed_count": 2000,
+        "status": "ready"
+      }
+    },
+    {
+      "git_sha": "d5e69ae24d6073be7b9b9fcc51b045108c769ad4",
+      "image_id": "sha256:0e27929407bf23f45ad744c2fae48edc526510295e8381309b6ce3c19e762e00",
+      "profile": "pgvector",
+      "recorded_at_utc": "2026-08-14T07:33:02.133769+00:00",
+      "scenarios": [
+        {
+          "client_4xx": 0,
+          "concurrency": 1,
+          "invalid_payloads": {},
+          "p50_ms": 30.85,
+          "p95_ms": 34.96,
+          "p99_ms": 40.44,
+          "requests": 100,
+          "scenario": "hybrid",
+          "server_5xx": 0,
+          "status_counts": {
+            "200": 100
+          },
+          "success": 100,
+          "throughput_rps": 31.77,
+          "transport_errors": 0,
+          "wall_seconds": 3.148,
+          "warmup_requests_excluded": 5
+        },
+        {
+          "client_4xx": 0,
+          "concurrency": 10,
+          "invalid_payloads": {},
+          "p50_ms": 291.47,
+          "p95_ms": 329.25,
+          "p99_ms": 331.67,
+          "requests": 100,
+          "scenario": "hybrid",
+          "server_5xx": 0,
+          "status_counts": {
+            "200": 100
+          },
+          "success": 100,
+          "throughput_rps": 32.88,
+          "transport_errors": 0,
+          "wall_seconds": 3.042,
+          "warmup_requests_excluded": 5
+        },
+        {
+          "client_4xx": 0,
+          "concurrency": 1,
+          "invalid_payloads": {},
+          "p50_ms": 1070.58,
+          "p95_ms": 1433.98,
+          "p99_ms": 1526.96,
+          "requests": 100,
+          "scenario": "quality",
+          "server_5xx": 0,
+          "status_counts": {
+            "200": 100
+          },
+          "success": 100,
+          "throughput_rps": 0.87,
+          "transport_errors": 0,
+          "wall_seconds": 114.804,
+          "warmup_requests_excluded": 5
+        },
+        {
+          "client_4xx": 0,
+          "concurrency": 10,
+          "invalid_payloads": {},
+          "p50_ms": 11276.0,
+          "p95_ms": 12487.0,
+          "p99_ms": 12495.51,
+          "requests": 100,
+          "scenario": "quality",
+          "server_5xx": 0,
+          "status_counts": {
+            "200": 100
+          },
+          "success": 100,
+          "throughput_rps": 0.88,
+          "transport_errors": 0,
+          "wall_seconds": 113.239,
+          "warmup_requests_excluded": 5
+        },
+        {
+          "client_4xx": 0,
+          "concurrency": 1,
+          "invalid_payloads": {},
+          "p50_ms": 53.72,
+          "p95_ms": 71.23,
+          "p99_ms": 93.93,
+          "requests": 100,
+          "scenario": "agent",
+          "server_5xx": 0,
+          "status_counts": {
+            "200": 100
+          },
+          "success": 100,
+          "throughput_rps": 17.35,
+          "transport_errors": 0,
+          "wall_seconds": 5.763,
+          "warmup_requests_excluded": 5
+        },
+        {
+          "client_4xx": 0,
+          "concurrency": 10,
+          "invalid_payloads": {},
+          "p50_ms": 473.32,
+          "p95_ms": 666.91,
+          "p99_ms": 670.36,
+          "requests": 100,
+          "scenario": "agent",
+          "server_5xx": 0,
+          "status_counts": {
+            "200": 100
+          },
+          "success": 100,
+          "throughput_rps": 19.78,
+          "transport_errors": 0,
+          "wall_seconds": 5.056,
+          "warmup_requests_excluded": 5
+        }
+      ],
+      "schema_version": 1,
+      "scope": "local Docker development benchmark; not a production claim",
+      "started_from_readiness": {
+        "catalog_backend": "postgres",
+        "catalog_size": 2000,
+        "embedding_backend": "pgvector",
+        "embedding_dim": 384,
+        "embedding_model": "all-MiniLM-L6-v2",
+        "semantic_backend": "pgvector",
+        "semantic_index_ready": true,
+        "semantic_indexed_count": 2000,
+        "status": "ready"
+      }
+    }
+  ],
+  "scenario_count": 8,
+  "schema_version": 1,
+  "scope": "local Docker development benchmark; not a production claim",
+  "total_measured_requests": 800
+}

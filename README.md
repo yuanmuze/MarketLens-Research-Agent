@@ -10,6 +10,8 @@ MarketLens is a vertical product research system demonstrating AI Application, A
 - **Agent Engineering**: LangGraph single-agent workflow with 8 nodes, LangChain tools, FakeLLM for offline testing
 - **AI Backend**: FastAPI with 6 endpoints, SQLAlchemy persistence (SQLite/PostgreSQL), Pydantic v2 validation
 - **ML Systems**: Reproducible evaluation benchmarks (Recall@10, nDCG@10, constraint satisfaction), GitHub Actions CI
+- **Vector Backend**: Explicit memory/pgvector retrieval with readiness checks,
+  atomic idempotent indexing, and measured backend parity
 
 ## Quickstart (No API Keys Required)
 
@@ -145,6 +147,25 @@ WANDS and Amazon are separate data links:
 - **WANDS**: Official retrieval benchmark (furniture, human-labeled)
 - **Amazon 2,000**: Structured filtering demo (electronics, auto-curated)
 
+## Phase 8: Real pgvector and Frozen Evaluation
+
+Phase 8 adds a real PostgreSQL cosine semantic backend without changing
+frozen migrations 0001-0004. On fixed test splits, memory and pgvector rankings
+matched exactly for all 96 WANDS queries and all 100 ESCI queries. The quality
+reranker reached nDCG@10 0.72505 on WANDS and 0.71306 on the fixed 100-query
+ESCI US reduced subset (not the full official ESCI benchmark).
+
+The final local Docker matrix completed 800/800 validated requests across real
+memory/pgvector Hybrid, pgvector quality, and deterministic Fake-Agent paths,
+with no HTTP, payload, fallback, or external-LLM failures. At concurrency 10,
+pgvector Hybrid measured 32.88 RPS / p95 329.25 ms; CPU reranking was the clear
+bottleneck at 0.88 RPS / p95 12.49 s. These are local development results, not
+a production SLA or capacity claim.
+
+See [PHASE8_DELIVERY.md](docs/PHASE8_DELIVERY.md) and
+[phase8_progress.md](reports/phase8_progress.md) for methodology, limitations,
+metrics, reproducibility hashes, and interview-ready framing.
+
 ## Data Pipeline
 
 Uses the official UCSD Amazon Reviews 2023 JSONL source via HuggingFace
@@ -197,6 +218,7 @@ print(generate_markdown_report(reports, queries))
 | [PHASE6_IMPLEMENTATION_REPORT.md](docs/PHASE6_IMPLEMENTATION_REPORT.md) | Data pipeline, real embeddings, comparison framework |
 | [PHASE6_EVALUATION_REPORT.md](docs/PHASE6_EVALUATION_REPORT.md) | Phase 6 benchmark results (fixture) |
 | [PHASE6_LEARNING_GUIDE.md](docs/PHASE6_LEARNING_GUIDE.md) | BM25/embedding/RRF deep dive, 15 new interview Q&A |
+| [PHASE8_DELIVERY.md](docs/PHASE8_DELIVERY.md) | Real pgvector architecture, frozen evaluation, load evidence, and portfolio summary |
 | [EVALUATION_ANNOTATION_GUIDE.md](docs/EVALUATION_ANNOTATION_GUIDE.md) | How to manually review eval queries |
 
 ## PostgreSQL Persistence (Phase 6)
@@ -239,10 +261,29 @@ docker compose up -d
 # API: http://127.0.0.1:8000  |  liveness: /health/live  |  readiness: /health/ready
 ```
 
-### Load test (local, hits the running Docker API)
+The Compose credentials are for local development. Before pgvector mode can
+become ready, import a catalog and build its matching real embedding index:
 
 ```bash
-uv run python scripts/load_test.py --base-url http://127.0.0.1:8000 --requests 200 --concurrency 10
+uv run python scripts/import_products.py --input data/processed/electronics_2000.json
+uv run python scripts/index_product_embeddings.py \
+  --products data/processed/electronics_2000.json \
+  --model all-MiniLM-L6-v2
+
+curl "http://127.0.0.1:8000/search?q=wireless%20headphones&strategy=hybrid&top_k=5"
+curl -X POST "http://127.0.0.1:8000/agent/recommend" \
+  -H "Content-Type: application/json" \
+  -d '{"message":"best wireless headphones","mode":"balanced","max_results":5}'
+```
+
+Phase 8 index/evaluation commands refuse PostgreSQL database names that do not
+contain `test`. Never point destructive test fixtures at the development DB.
+
+### Phase 8 load test (local, hits the running Docker API)
+
+```bash
+uv run python scripts/load_test_phase8.py run --profile pgvector \
+  --requests 100 --image-id <docker-image-id> --output tmp/phase8-load-pgvector.json
 ```
 
 ### Two catalog backends
@@ -252,8 +293,10 @@ uv run python scripts/load_test.py --base-url http://127.0.0.1:8000 --requests 2
 | `json` (default) | Loads products from JSON file (existing behavior) |
 | `postgres` | Loads products from `products` table, then builds in-memory retrieval index |
 
-Retrieval (BM25/vector/rerank) is still in-memory in both modes. PostgreSQL
-is used only for persistence, not for vector search (no pgvector in this phase).
+Set `MARKETLENS_SEMANTIC_BACKEND=memory` or `pgvector`. The pgvector mode uses
+PostgreSQL cosine search over a pre-built 384-dimensional index and fails
+readiness instead of silently falling back to memory. The memory mode remains
+available for local parity and offline tests.
 
 ### Tests
 
@@ -270,20 +313,79 @@ uv run pytest -m postgres
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `TAVILY_API_KEY` | No | — | Enables web search tool |
-| `OPENAI_API_KEY` | No | — | For real LLM mode (OpenAI) |
-| `ANTHROPIC_API_KEY` | No | — | For real LLM mode (Anthropic) |
+| `TAVILY_API_KEY` | No | empty | Enables web search tool |
+| `OPENAI_API_KEY` | No | empty | For legacy real LLM mode |
+| `MARKETLENS_AGENT_API_KEY` | No | empty | OpenAI-compatible Agent provider; unused with Fake LLM |
+| `MARKETLENS_USE_FAKE_LLM` | No | `false` | Deterministic local Agent; no external LLM calls |
 | `MARKETLENS_DATABASE_URL` | No | `sqlite:///marketlens_persistence.db` | DB connection (Phase 6 persistence) |
 | `MARKETLENS_CATALOG_BACKEND` | No | `json` | `json` or `postgres` |
-| `MARKETLENS_TEST_DATABASE_URL` | No | — | PostgreSQL test DB (integration tests only) |
+| `MARKETLENS_CATALOG_PATH` | No | auto | JSON source/cache identity path |
+| `MARKETLENS_SEMANTIC_BACKEND` | No | `memory` | `memory` or PostgreSQL `pgvector` |
+| `MARKETLENS_EMBEDDING_MODEL` | No | `all-MiniLM-L6-v2` | Real 384-dimensional model |
+| `MARKETLENS_TEST_DATABASE_URL` | No | empty | Dedicated PostgreSQL test DB; name must contain `test` |
+
+## ESCI provenance and reproduction
+
+Phase 8 uses only Amazon Science's official
+[`esci-data`](https://github.com/amazon-science/esci-data) repository at commit
+`7916cdf6ab75a462e77f20ab40428a10923998d5`, licensed Apache-2.0. Only the
+official examples and products parquet files are downloaded; their LFS sizes,
+SHA-256 digests, schemas, and row counts are recorded in
+[`esci_source.json`](data/manifests/esci_source.json). Raw files, derived query
+details, qrels, embeddings, and model weights are never committed.
+
+```bash
+uv run python scripts/download_esci.py
+uv run python scripts/prepare_esci_subset.py
+
+# Requires a dedicated database whose name contains "test".
+export MARKETLENS_DATABASE_URL="postgresql+psycopg2://marketlens:marketlens@localhost:5432/marketlens_esci_test"
+uv run python scripts/index_esci_embeddings.py
+```
+
+The subset manifest fixes seed `20260814`, query-group selection, source/data
+hashes, 300 train / 100 validation / 100 official-test queries, and pairwise
+split disjointness. Evaluation commands and frozen results are documented in
+[`PHASE8_DELIVERY.md`](docs/PHASE8_DELIVERY.md); running them again would create
+a new experiment and is not part of the frozen result.
+
+## Final quality gates
+
+```bash
+uv run pytest -q -rs
+uv run pytest -m postgres -q -rs
+uv run ruff check .
+uv run mypy src scripts
+uv run alembic current
+uv run alembic check
+docker compose config
+```
+
+Phase 8's final local gate passed 437 tests with one expected skip, the real
+PostgreSQL subset passed, Ruff and mypy passed, and Alembic remained at 0004
+with no migration changes.
 
 ## Known Limitations
 
-- **Fixture data only**: 20 hand-crafted products; not real Amazon Reviews data
-- **Fake LLM**: Rule-based; swap to real LLM for production
-- **No streaming**: Synchronous API responses
-- **In-memory catalog**: No distributed index
-- **No auth**: Open API; add auth for production
+- **Fixed evaluation subsets**: Phase 8 numbers do not represent complete
+  official WANDS/ESCI leaderboards; WANDS is not a historically untouched holdout.
+- **Exact measured pgvector path**: migration 0002 defines HNSW, but the active
+  deterministic two-key query planned as `Seq Scan + Sort` in both frozen
+  evaluation databases. Approximate HNSW behavior was not separately measured.
+- **CPU reranker bottleneck**: quality mode improved nDCG but reached only 0.88
+  RPS at concurrency 10 in the local Docker matrix.
+- **Fake LLM evidence only**: Phase 8 made zero external LLM calls; it does not
+  report token cost, real-provider quality, or production Agent reliability.
+- **Development deployment**: no authentication, distributed index,
+  autoscaling, production observability, or production SLA validation.
+
+## Dataset licenses and citation
+
+- WANDS: Wayfair Annotated Dataset for Search, MIT license. See the
+  [official WANDS repository](https://github.com/wayfair/WANDS).
+- ESCI: Amazon Science Shopping Queries Dataset, Apache-2.0 license. See the
+  [official ESCI repository](https://github.com/amazon-science/esci-data) and
+  its citation instructions. Phase 8 uses a reproducible reduced subset.
 
 ## License
 
