@@ -11,7 +11,7 @@ import os
 import random
 import statistics
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Callable
 
@@ -339,7 +339,7 @@ def main() -> None:
             for run in all_runs:
                 handle.write(json.dumps(run, ensure_ascii=False) + "\n")
         result = {
-            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "generated_at": datetime.now(UTC).isoformat(),
             "config_hash": manifest["config_hash"],
             "split": args.split,
             "query_count": len(selected_queries),

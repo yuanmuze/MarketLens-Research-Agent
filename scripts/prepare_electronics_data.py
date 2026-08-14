@@ -34,7 +34,7 @@ import json
 import logging
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -220,7 +220,7 @@ def generate_manifest(
         "datasets_version": datasets_version,
         "streaming": streaming,
         "shuffle_buffer_size": SHUFFLE_BUFFER_SIZE,
-        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "generated_at": datetime.now(UTC).isoformat(),
         "seed": args.seed,
         "max_products_target": args.max_products,
         "raw_products_read": raw_count,

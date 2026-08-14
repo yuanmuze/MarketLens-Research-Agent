@@ -21,7 +21,7 @@ import hashlib
 import json
 import logging
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
@@ -108,7 +108,7 @@ def main() -> None:
         "license": "MIT License",
         "license_url": "https://raw.githubusercontent.com/wayfair/WANDS/3b74dcf4ba29ab8ff3e6a50b5b09fc627cb882b5/LICENSE",
         "license_sha256": "e3ce14610132897db9f64e21d7871a7a60c0bc04364ec61e4faa99643c5072d6",
-        "downloaded_at": datetime.now(timezone.utc).isoformat(),
+        "downloaded_at": datetime.now(UTC).isoformat(),
         "files": {
             fn: {"sha256": hashes[fn], "size_bytes": (OUTPUT_DIR / fn).stat().st_size}
             for fn, _ in FILES

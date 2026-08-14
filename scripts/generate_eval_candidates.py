@@ -25,7 +25,7 @@ import random
 import sys
 from collections import defaultdict
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -653,7 +653,7 @@ def write_outputs(
     lines = [
         "# Eval Candidate Summary",
         "",
-        f"**Generated**: {datetime.now(timezone.utc).isoformat()}",
+        f"**Generated**: {datetime.now(UTC).isoformat()}",
         f"**Source data**: `{source_path}`",
         f"**Seed**: {seed}",
         f"**Total candidates**: {len(candidates)}",

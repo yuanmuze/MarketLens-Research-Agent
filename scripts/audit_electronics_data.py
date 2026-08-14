@@ -16,7 +16,7 @@ import json
 import logging
 import sys
 from collections import Counter
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -150,7 +150,7 @@ def run_audit(input_path: Path) -> dict[str, Any]:
     sample = products[:10]
 
     report = {
-        "audit_timestamp": datetime.now(timezone.utc).isoformat(),
+        "audit_timestamp": datetime.now(UTC).isoformat(),
         "input_file": str(input_path),
         "basic_counts": {
             "total_products": total,

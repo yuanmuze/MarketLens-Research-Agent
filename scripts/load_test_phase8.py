@@ -11,7 +11,7 @@ import time
 import uuid
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -218,7 +218,7 @@ def _run_profile(args: argparse.Namespace) -> None:
         "git_sha": _git_sha(),
         "image_id": args.image_id,
         "started_from_readiness": ready,
-        "recorded_at_utc": datetime.now(timezone.utc).isoformat(),
+        "recorded_at_utc": datetime.now(UTC).isoformat(),
         "scenarios": results,
     }
     _write_new(Path(args.output), payload)

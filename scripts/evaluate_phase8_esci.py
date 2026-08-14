@@ -11,7 +11,7 @@ import math
 import os
 import statistics
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Callable
 
@@ -373,7 +373,7 @@ def main() -> None:
             for run in all_runs:
                 handle.write(json.dumps(run, ensure_ascii=False) + "\n")
         result = {
-            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "generated_at": datetime.now(UTC).isoformat(),
             "config_hash": run_manifest["config_hash"] if run_manifest else None,
             "subset_manifest_sha256": _sha256(SUBSET_MANIFEST),
             "dataset": subset_manifest["dataset"],

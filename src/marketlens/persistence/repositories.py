@@ -8,7 +8,7 @@ of writing raw SQL or ORM queries.
 from __future__ import annotations
 
 from collections.abc import Collection
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 import numpy as np
@@ -28,7 +28,7 @@ from marketlens.persistence.models import (
 
 def _utcnow() -> datetime:
     """UTC now, naive."""
-    return datetime.now(timezone.utc).replace(tzinfo=None)
+    return datetime.now(UTC).replace(tzinfo=None)
 
 
 class ProductRepository:

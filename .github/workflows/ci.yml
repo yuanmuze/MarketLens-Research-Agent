@@ -25,24 +25,24 @@ jobs:
           --health-retries 10
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Set up Python 3.12
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: "3.12"
 
       - name: Install uv
-        run: pip install uv
+        run: pip install uv==0.12.3
 
       - name: Cache uv
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cache/uv
           key: ${{ runner.os }}-uv-${{ hashFiles('uv.lock') }}
 
       - name: Install dependencies
-        run: uv sync --extra dev --extra data --extra embeddings --extra db
+        run: uv sync --locked --extra dev --extra db --extra embeddings
 
       - name: Ruff
         run: uv run ruff check .
@@ -59,9 +59,9 @@ jobs:
           uv run alembic check
 
       - name: Unit tests (no real LLM)
-        run: uv run pytest -q -rs
+        run: uv run pytest -m "not postgres" -q -rs
 
       - name: PostgreSQL integration tests
         env:
           MARKETLENS_TEST_DATABASE_URL: postgresql+psycopg2://marketlens:marketlens@localhost:5432/marketlens_test
-        run: uv run pytest -m postgres -q
+        run: uv run pytest -m postgres -q -rs

@@ -10,7 +10,7 @@ class HealthResponse(BaseModel):
 
     model_config = {"extra": "allow"}
     status: str = "ok"
-    version: str = "0.1.0"
+    version: str = "0.1.1"
     catalog_size: int = 0
 
 

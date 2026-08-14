@@ -9,7 +9,7 @@ import json
 import logging
 import os
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pyarrow.parquet as pq
@@ -196,7 +196,7 @@ def main() -> None:
         "commit": COMMIT,
         "license": "Apache-2.0",
         "license_url": f"{REPOSITORY}/blob/{COMMIT}/LICENSE",
-        "download_completed_at": datetime.now(timezone.utc).isoformat(),
+        "download_completed_at": datetime.now(UTC).isoformat(),
         "lfs_declared_total_bytes": total,
         "raw_files_git_policy": "ignored; raw parquet files are never committed",
         "files": completed,

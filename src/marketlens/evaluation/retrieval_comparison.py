@@ -12,7 +12,7 @@ import json
 import logging
 import time
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Callable
 
@@ -624,7 +624,7 @@ def save_comparison_results(
 
     summary: dict[str, Any] = {
         "run_config": config or {},
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": datetime.now(UTC).isoformat(),
         "query_count": len(queries),
         "query_categories": list(set(q.category for q in queries)),
         "strategies": strategies_data,
@@ -660,7 +660,7 @@ def generate_markdown_report(
     lines = [
         "# MarketLens Retrieval Strategy Comparison",
         "",
-        f"**Run date**: {datetime.now(timezone.utc).isoformat()}",
+        f"**Run date**: {datetime.now(UTC).isoformat()}",
         f"**Query count**: {len(queries)}",
         "**Top-K**: 10",
     ]

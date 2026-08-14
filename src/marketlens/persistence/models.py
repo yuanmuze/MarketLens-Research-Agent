@@ -12,7 +12,7 @@ responses are ever persisted.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 
 from pgvector.sqlalchemy import Vector
@@ -37,7 +37,7 @@ JSONType = JSON().with_variant(JSONB(), "postgresql")
 
 def _utcnow() -> datetime:
     """Return current UTC datetime (naive, matching TIMESTAMP WITHOUT TZ)."""
-    return datetime.now(timezone.utc).replace(tzinfo=None)
+    return datetime.now(UTC).replace(tzinfo=None)
 
 
 class Base(DeclarativeBase):

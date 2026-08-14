@@ -20,7 +20,7 @@ import json
 import logging
 import statistics
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from marketlens.catalog import ProductCatalog
@@ -319,7 +319,7 @@ def main() -> None:
         "candidate_k": CANDIDATE_K,
         "rrf_k": 60,
         "seed": SEED,
-        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "generated_at": datetime.now(UTC).isoformat(),
         "catalog_build_ms": catalog_build_time,
         "service_init_ms": init_time,
         "product_count": len(wands_products),

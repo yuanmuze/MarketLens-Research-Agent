@@ -25,6 +25,8 @@ services:
       MARKETLENS_EMBEDDING_MODEL: "all-MiniLM-L6-v2"
       MARKETLENS_USE_FAKE_EMBEDDINGS: "false"
       MARKETLENS_USE_FAKE_LLM: "true"
+      MARKETLENS_CORS_ORIGINS: "http://localhost:3000,http://localhost:8000,http://127.0.0.1:3000,http://127.0.0.1:8000"
+      MARKETLENS_CORS_ALLOW_CREDENTIALS: "false"
       MARKETLENS_CATALOG_PATH: "/data/processed/electronics_2000.json"
       HF_HUB_OFFLINE: "1"
       TRANSFORMERS_OFFLINE: "1"

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 logger = logging.getLogger("marketlens.observability")
@@ -37,7 +37,7 @@ def log_event(event: str, **extra: Any) -> None:
         **extra: Additional structured fields (sanitized).
     """
     payload = {
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": datetime.now(UTC).isoformat(),
         "level": "INFO",
         "event": event,
     }

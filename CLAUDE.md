@@ -1,79 +1,17 @@
-# Open Deep Research Repository Overview
+# MarketLens contributor instructions
 
-## Project Description
-Open Deep Research is a configurable, fully open-source deep research agent that works across multiple model providers, search tools, and MCP (Model Context Protocol) servers. It enables automated research with parallel processing and comprehensive report generation.
+MarketLens is an offline-first FastAPI product research system with PostgreSQL,
+pgvector, BM25, RRF hybrid retrieval, and a deterministic Fake LLM demo path.
 
-## Repository Structure
-
-### Root Directory
-- `README.md` - Comprehensive project documentation with quickstart guide
-- `pyproject.toml` - Python project configuration and dependencies
-- `langgraph.json` - LangGraph configuration defining the main graph entry point
-- `uv.lock` - UV package manager lock file
-- `LICENSE` - MIT license
-- `.env.example` - Environment variables template (not tracked)
-
-### Core Implementation (`src/open_deep_research/`)
-- `deep_researcher.py` - Main LangGraph implementation (entry point: `deep_researcher`)
-- `configuration.py` - Configuration management and settings
-- `state.py` - Graph state definitions and data structures  
-- `prompts.py` - System prompts and prompt templates
-- `utils.py` - Utility functions and helpers
-- `files/` - Research output and example files
-
-### Legacy Implementations (`src/legacy/`)
-Contains two earlier research implementations:
-- `graph.py` - Plan-and-execute workflow with human-in-the-loop
-- `multi_agent.py` - Supervisor-researcher multi-agent architecture
-- `legacy.md` - Documentation for legacy implementations
-- `CLAUDE.md` - Legacy-specific Claude instructions
-- `tests/` - Legacy-specific tests
-
-### Security (`src/security/`)
-- `auth.py` - Authentication handler for LangGraph deployment
-
-### Testing (`tests/`)
-- `run_evaluate.py` - Main evaluation script configured to run on deep research bench
-- `evaluators.py` - Specialized evaluation functions  
-- `prompts.py` - Evaluation prompts and criteria
-- `pairwise_evaluation.py` - Comparative evaluation tools
-- `supervisor_parallel_evaluation.py` - Multi-threaded evaluation
-
-### Examples (`examples/`)
-- `arxiv.md` - ArXiv research example
-- `pubmed.md` - PubMed research example
-- `inference-market.md` - Inference market analysis examples
-
-## Key Technologies
-- **LangGraph** - Workflow orchestration and graph execution
-- **LangChain** - LLM integration and tool calling
-- **Multiple LLM Providers** - OpenAI, Anthropic, Google, Groq, DeepSeek support
-- **Search APIs** - Tavily, OpenAI/Anthropic native search, DuckDuckGo, Exa
-- **MCP Servers** - Model Context Protocol for extended capabilities
-
-## Development Commands
-- `uvx langgraph dev` - Start development server with LangGraph Studio
-- `python tests/run_evaluate.py` - Run comprehensive evaluations
-- `ruff check` - Code linting
-- `mypy` - Type checking
-
-## Configuration
-All settings configurable via:
-- Environment variables (`.env` file)
-- Web UI in LangGraph Studio
-- Direct configuration modification
-
-Key settings include model selection, search API choice, concurrency limits, and MCP server configurations.
-## MarketLens autonomous execution
-
-- This is an implementation task, not a planning-only task.
-- Inspect the repository and begin implementation immediately.
-- Continue through all milestones without waiting for approval.
-- Make routine engineering decisions independently.
-- Fix ordinary errors and rerun verification automatically.
-- Run tests, linting, and type checking after changes.
-- Create milestone-based local Git commits.
-- Ask only for irreversible data loss, unavailable credentials, payment, remote deployment, or a material requirement conflict.
-- Never push, rewrite Git history, read secrets, or modify the old MarketLens projects.
-- Use offline fakes when external APIs are unavailable.
-- Never claim an unexecuted test or benchmark succeeded.
+- Use Python 3.12 and `uv sync --locked --extra dev --extra db --extra embeddings`.
+- Keep default development and test flows offline; never require provider keys.
+- Run `ruff`, `mypy`, unit tests, and the dedicated PostgreSQL marker suite.
+- PostgreSQL integration tests may connect only to database names containing
+  `test`.
+- Do not modify frozen Alembic migrations 0001-0004 or frozen WANDS/ESCI
+  results without an explicitly scoped new experiment.
+- Do not commit raw datasets, embedding/model caches, local labels, secrets, or
+  `.claude/` configuration.
+- Use `compose.yaml` as the only Compose entry point.
+- Vendored Open Deep Research code is retained for attribution/reference; the
+  supported public application entry point is `marketlens.api.main:app`.

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any, Literal
 
 from langgraph.graph import END, START, StateGraph
@@ -365,7 +365,7 @@ def build_research_graph(
             return {
                 "final_report": report,
                 "status": "completed",
-                "completed_at": datetime.now(timezone.utc),
+                "completed_at": datetime.now(UTC),
                 "node_timings": timings,
             }
         except Exception as e:
@@ -390,7 +390,7 @@ def build_research_graph(
                 f"**Error**: {error}\n\n"
                 f"Please try again with different search terms or constraints."
             ),
-            "completed_at": datetime.now(timezone.utc),
+            "completed_at": datetime.now(UTC),
         }
 
     # --- Routing ---

@@ -8,7 +8,7 @@ import hashlib
 import json
 import logging
 from collections import defaultdict
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -271,7 +271,7 @@ def main() -> None:
     manifest = {
         "schema_version": 1,
         "dataset": "ESCI English-US reduced fixed subset",
-        "frozen_at": datetime.now(timezone.utc).isoformat(),
+        "frozen_at": datetime.now(UTC).isoformat(),
         "source_commit": source["commit"],
         "source_file_sha256": {
             item["name"]: item["sha256"] for item in source["files"]
