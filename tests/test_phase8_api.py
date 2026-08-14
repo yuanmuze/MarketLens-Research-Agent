@@ -51,6 +51,56 @@ def test_settings_parse_supported_environment(monkeypatch: pytest.MonkeyPatch) -
     assert settings.catalog_path == Path("/data/processed/products.json")
 
 
+def test_settings_default_to_offline_agent_and_local_cors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    for variable in (
+        "MARKETLENS_USE_FAKE_LLM",
+        "MARKETLENS_CORS_ORIGINS",
+        "MARKETLENS_CORS_ALLOW_CREDENTIALS",
+    ):
+        monkeypatch.delenv(variable, raising=False)
+
+    settings = MarketLensSettings.from_env()
+
+    assert settings.use_fake_llm is True
+    assert settings.cors_allow_credentials is False
+    assert settings.cors_origins == (
+        "http://localhost:3000",
+        "http://localhost:8000",
+        "http://127.0.0.1:3000",
+        "http://127.0.0.1:8000",
+    )
+
+
+def test_settings_reject_wildcard_cors_with_credentials(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("MARKETLENS_CORS_ORIGINS", "*")
+    monkeypatch.setenv("MARKETLENS_CORS_ALLOW_CREDENTIALS", "true")
+
+    with pytest.raises(ValueError, match="credentials"):
+        MarketLensSettings.from_env()
+
+
+def test_default_cors_allows_localhost_only() -> None:
+    client = TestClient(app)
+    headers = {"Access-Control-Request-Method": "GET"}
+
+    allowed = client.options(
+        "/health",
+        headers={**headers, "Origin": "http://localhost:3000"},
+    )
+    denied = client.options(
+        "/health",
+        headers={**headers, "Origin": "https://untrusted.example"},
+    )
+
+    assert allowed.headers["access-control-allow-origin"] == "http://localhost:3000"
+    assert "access-control-allow-credentials" not in allowed.headers
+    assert "access-control-allow-origin" not in denied.headers
+
+
 @pytest.mark.parametrize(
     ("variable", "value"),
     [

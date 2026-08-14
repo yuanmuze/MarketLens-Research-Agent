@@ -6,9 +6,17 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, cast
+from urllib.parse import urlsplit
 
 CatalogBackendName = Literal["json", "postgres"]
 SemanticBackendName = Literal["memory", "pgvector"]
+
+DEFAULT_CORS_ORIGINS = (
+    "http://localhost:3000",
+    "http://localhost:8000",
+    "http://127.0.0.1:3000",
+    "http://127.0.0.1:8000",
+)
 
 
 def _choice(
@@ -37,6 +45,30 @@ def _boolean(variable: str, default: bool = False) -> bool:
     raise ValueError(f"{variable} must be a boolean value")
 
 
+def _cors_origins(raw: str | None) -> tuple[str, ...]:
+    """Parse and validate a comma-separated CORS origin allowlist."""
+    if raw is None or not raw.strip():
+        return DEFAULT_CORS_ORIGINS
+    origins = tuple(dict.fromkeys(item.strip().rstrip("/") for item in raw.split(",") if item.strip()))
+    if not origins:
+        raise ValueError("MARKETLENS_CORS_ORIGINS must contain at least one origin")
+    for origin in origins:
+        if origin == "*":
+            continue
+        parsed = urlsplit(origin)
+        if (
+            parsed.scheme not in {"http", "https"}
+            or not parsed.netloc
+            or parsed.path
+            or parsed.query
+            or parsed.fragment
+            or parsed.username
+            or parsed.password
+        ):
+            raise ValueError("MARKETLENS_CORS_ORIGINS contains an invalid origin")
+    return origins
+
+
 @dataclass(frozen=True)
 class MarketLensSettings:
     """Runtime settings shared by API startup and retrieval injection."""
@@ -45,8 +77,10 @@ class MarketLensSettings:
     semantic_backend: SemanticBackendName = "memory"
     embedding_model: str = "all-MiniLM-L6-v2"
     use_fake_embeddings: bool = False
-    use_fake_llm: bool = False
+    use_fake_llm: bool = True
     catalog_path: Path | None = None
+    cors_origins: tuple[str, ...] = DEFAULT_CORS_ORIGINS
+    cors_allow_credentials: bool = False
 
     @classmethod
     def from_env(cls) -> MarketLensSettings:
@@ -70,11 +104,19 @@ class MarketLensSettings:
         if not model:
             raise ValueError("MARKETLENS_EMBEDDING_MODEL must not be empty")
         catalog_path_raw = os.environ.get("MARKETLENS_CATALOG_PATH", "").strip()
+        cors_allow_credentials = _boolean("MARKETLENS_CORS_ALLOW_CREDENTIALS")
+        cors_origins = _cors_origins(os.environ.get("MARKETLENS_CORS_ORIGINS"))
+        if cors_allow_credentials and "*" in cors_origins:
+            raise ValueError(
+                "MARKETLENS_CORS_ORIGINS cannot contain '*' when credentials are enabled"
+            )
         return cls(
             catalog_backend=catalog,
             semantic_backend=semantic,
             embedding_model=model,
             use_fake_embeddings=_boolean("MARKETLENS_USE_FAKE_EMBEDDINGS"),
-            use_fake_llm=_boolean("MARKETLENS_USE_FAKE_LLM"),
+            use_fake_llm=_boolean("MARKETLENS_USE_FAKE_LLM", default=True),
             catalog_path=Path(catalog_path_raw) if catalog_path_raw else None,
+            cors_origins=cors_origins,
+            cors_allow_credentials=cors_allow_credentials,
         )

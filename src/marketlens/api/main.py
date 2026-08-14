@@ -94,15 +94,17 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="MarketLens Research API",
     description="Vertical product research system with evidence-grounded recommendations",
-    version="0.1.0",
+    version="0.1.1",
     lifespan=lifespan,
 )
 
-# CORS
+# CORS is deliberately static for the process lifetime and fails closed when
+# environment configuration is invalid.
+_cors_settings = MarketLensSettings.from_env()
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=list(_cors_settings.cors_origins),
+    allow_credentials=_cors_settings.cors_allow_credentials,
     allow_methods=["*"],
     allow_headers=["*"],
 )

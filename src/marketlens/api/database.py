@@ -7,7 +7,9 @@ Uses pgvector extension for PostgreSQL when available.
 from __future__ import annotations
 
 import os
-from datetime import datetime, timezone
+from collections.abc import Iterator
+from contextlib import contextmanager
+from datetime import UTC, datetime
 
 from sqlalchemy import (
     Column,
@@ -46,7 +48,7 @@ class ResearchJobRecord(Base):
     enable_web_search = Column(Integer, default=0)
 
     # Timing
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime, default=lambda: datetime.now(UTC))
     started_at = Column(DateTime, nullable=True)
     completed_at = Column(DateTime, nullable=True)
     duration_ms = Column(Float, nullable=True)
@@ -73,7 +75,7 @@ class SearchQueryRecord(Base):
     top_k = Column(Integer, default=20)
     result_count = Column(Integer, default=0)
     duration_ms = Column(Float, nullable=True)
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime, default=lambda: datetime.now(UTC))
     source = Column(String(50), default="hybrid")  # bm25, embedding, hybrid, reranked
 
 
@@ -103,6 +105,20 @@ def get_session() -> Session:
     if _SessionLocal is None:
         _SessionLocal = sessionmaker(bind=get_engine())
     return _SessionLocal()
+
+
+@contextmanager
+def session_scope() -> Iterator[Session]:
+    """Provide a transaction that always rolls back on error and closes."""
+    session = get_session()
+    try:
+        yield session
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
 
 
 def init_db() -> None:

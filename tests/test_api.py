@@ -5,7 +5,8 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
-from marketlens.api.database import drop_db, init_db
+import marketlens.api.database as api_database
+from marketlens.api.database import ResearchJobRecord, drop_db, init_db, session_scope
 from marketlens.api.main import app
 from marketlens.api.routes import init_catalog
 from marketlens.catalog import ProductCatalog
@@ -44,7 +45,7 @@ class TestHealthEndpoint:
         assert response.status_code == 200
         data = response.json()
         assert data["status"] == "ok"
-        assert data["version"] == "0.1.0"
+        assert data["version"] == "0.1.1"
 
     def test_health_has_catalog_size(self, client: TestClient) -> None:
         """Test health response includes catalog size."""
@@ -257,3 +258,72 @@ class TestErrorHandling:
         """Test error responses include request_id."""
         response = client.get("/nonexistent")
         assert response.status_code == 404
+
+    def test_research_failure_is_sanitized_in_response_storage_and_logs(
+        self,
+        client: TestClient,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """A provider-style exception never leaks through public surfaces."""
+        import marketlens.agent.graph as graph
+
+        secret_detail = "https://vendor.example?token=sk-sensitive-value"
+
+        async def fail_research(*args, **kwargs):
+            del args, kwargs
+            raise RuntimeError(secret_detail)
+
+        monkeypatch.setattr(graph, "run_research", fail_research)
+
+        response = client.post("/research", json={"query": "headphones"})
+
+        assert response.status_code == 500
+        assert secret_detail not in response.text
+        assert "vendor.example" not in caplog.text
+        with session_scope() as session:
+            record = session.query(ResearchJobRecord).order_by(ResearchJobRecord.id.desc()).first()
+            assert record is not None
+            assert record.error_message == "RuntimeError: research execution failed"
+
+
+class TestAPISessionScope:
+    """Regression tests for API session transaction cleanup."""
+
+    class FakeSession:
+        def __init__(self) -> None:
+            self.committed = False
+            self.rolled_back = False
+            self.closed = False
+
+        def commit(self) -> None:
+            self.committed = True
+
+        def rollback(self) -> None:
+            self.rolled_back = True
+
+        def close(self) -> None:
+            self.closed = True
+
+    def test_success_commits_and_closes(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        fake = self.FakeSession()
+        monkeypatch.setattr(api_database, "get_session", lambda: fake)
+
+        with api_database.session_scope() as session:
+            assert session is fake
+
+        assert fake.committed is True
+        assert fake.rolled_back is False
+        assert fake.closed is True
+
+    def test_error_rolls_back_and_closes(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        fake = self.FakeSession()
+        monkeypatch.setattr(api_database, "get_session", lambda: fake)
+
+        with pytest.raises(RuntimeError, match="boom"):
+            with api_database.session_scope():
+                raise RuntimeError("boom")
+
+        assert fake.committed is False
+        assert fake.rolled_back is True
+        assert fake.closed is True
