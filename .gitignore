@@ -25,10 +25,16 @@ wheels/
 *.egg
 
 # Virtual environments
+.venv/
 venv/
 env/
 ENV/
 .env
+.claude/
+
+# Project-local uv cache used for reproducible Phase 8 tooling
+.uv-cache-phase8/
+.python-phase8/
 
 # IDE specific files
 .idea/
@@ -73,6 +79,8 @@ temp/
 # Model cache
 models--*
 .sentence_transformers_cache/
+.cache/huggingface/
+huggingface/
 
 # Large data files
 *.parquet
@@ -82,6 +90,8 @@ data/raw/
 data/processed/
 data/external/
 data/evaluation/
+data/cache/
+data/eval/
 
 .langgraph_api
 .claude/settings.local.json

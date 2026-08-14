@@ -4,11 +4,19 @@
 .env
 .env.*
 .venv
+.uv-cache-phase8
+.python-phase8
+.claude
 __pycache__
 *.pyc
 .pytest_cache
 .ruff_cache
 .mypy_cache
+.benchmarks
+.coverage
+htmlcov
+*.egg-info
+tmp
 
 # Data / caches / artifacts
 data/

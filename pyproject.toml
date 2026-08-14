@@ -114,6 +114,7 @@ exclude = [
 "src/marketlens/evaluation/benchmark.py" = ["T201"]
 "scripts/demo_retrieval.py" = ["T201", "D"]
 "scripts/load_test.py" = ["T201"]
+"scripts/load_test_phase8.py" = ["T201"]
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"
@@ -130,7 +131,7 @@ markers = [
 [tool.mypy]
 ignore_missing_imports = true
 follow_imports = "skip"
-python_version = "3.11"
+python_version = "3.12"
 files = ["src/marketlens", "scripts"]
 exclude = [
     "src/legacy",

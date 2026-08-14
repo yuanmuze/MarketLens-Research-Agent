@@ -19,9 +19,20 @@ services:
   api:
     build: .
     environment:
-      MARKETLENS_DATABASE_URL: "postgresql+psycopg2://marketlens:marketlens@db:5432/marketlens"
-      MARKETLENS_CATALOG_BACKEND: "json"
-      MARKETLENS_USE_FAKE_EMBEDDINGS: "true"
+      MARKETLENS_DATABASE_URL: "${MARKETLENS_DATABASE_URL:-postgresql+psycopg2://marketlens:marketlens@db:5432/marketlens}"
+      MARKETLENS_CATALOG_BACKEND: "postgres"
+      MARKETLENS_SEMANTIC_BACKEND: "${MARKETLENS_SEMANTIC_BACKEND:-pgvector}"
+      MARKETLENS_EMBEDDING_MODEL: "all-MiniLM-L6-v2"
+      MARKETLENS_USE_FAKE_EMBEDDINGS: "false"
+      MARKETLENS_USE_FAKE_LLM: "true"
+      MARKETLENS_CATALOG_PATH: "/data/processed/electronics_2000.json"
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+    volumes:
+      - ./data:/data:ro
+      # Runtime embedding caches are reproducible and intentionally writable;
+      # the source/raw/processed data mount above remains read-only.
+      - ./data/cache:/app/data/cache
     ports:
       - "127.0.0.1:8000:8000"
     depends_on:
