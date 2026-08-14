@@ -1,0 +1,137 @@
+{
+  "schema_version": 1,
+  "manifest_revision": 1,
+  "phase": 8,
+  "frozen_at": "2026-08-14T07:05:33.1508423Z",
+  "baseline_git_sha": "d5e69ae24d6073be7b9b9fcc51b045108c769ad4",
+  "working_tree_dirty": true,
+  "wands_frozen_config_hash": "69967c7a920f591d06a8409345fa24c8358b07e4f429d93427b9e19cce2cc356",
+  "validation_evidence": {
+    "split": "validation derived only from official train query IDs",
+    "query_count": 100,
+    "results_sha256": "fd61d65046cbf6c6b2546d6dd9be604e55f7b42b8176b47a8500247a1ddd7d91",
+    "execution_failures": 1,
+    "failure_detail": "BM25 returned no results for one validation query",
+    "semantic_exact_ranking_matches": "100/100",
+    "hybrid_exact_ranking_matches": "100/100",
+    "parameter_changes_after_validation": "none"
+  },
+  "configuration_status": "frozen before any official-test subset metrics",
+  "config_hash": "4187b20b99d3c1fef364184d7003e47070f92312958aa4bbdf0a36da54fd4e38",
+  "frozen_config": {
+    "seed": 20260814,
+    "top_k": 10,
+    "candidate_k": 50,
+    "dataset": {
+      "name": "ESCI English-US reduced fixed subset",
+      "official_repository": "https://github.com/amazon-science/esci-data",
+      "official_commit": "7916cdf6ab75a462e77f20ab40428a10923998d5",
+      "license": "Apache-2.0",
+      "locale": "us",
+      "small_version": 1,
+      "subset_manifest_sha256": "36ff7ae4fa76f2d14635411031f2336d6a4da67d1f11565221e83bd2a020edda",
+      "query_ids_sha256": "bc288c64b1378c1ad61827fccb70fa67c4882e1013b02c9302d58bbc2c4a07f2",
+      "catalog_sha256": "7985ad6b8e806250fe4660869526f176690434a5b03f3023aa07e98410231376",
+      "catalog_unique_products": 10346,
+      "split": {
+        "train": {
+          "official_source_split": "train",
+          "queries": 300,
+          "judgments": 5954,
+          "unique_products": 5939
+        },
+        "validation": {
+          "official_source_split": "train",
+          "queries": 100,
+          "judgments": 2147,
+          "unique_products": 2143
+        },
+        "test": {
+          "official_source_split": "test",
+          "queries": 100,
+          "judgments": 2315,
+          "unique_products": 2310
+        }
+      },
+      "split_policy": "official train and test never mixed; query IDs pairwise disjoint; validation derived from official train by query-group SHA256 rank",
+      "benchmark_claim": "fixed subset only; not the complete official ESCI benchmark",
+      "wands_isolation": true
+    },
+    "retrieval": {
+      "strategies": [
+        "popularity",
+        "bm25",
+        "semantic_memory",
+        "semantic_pgvector",
+        "hybrid_memory",
+        "hybrid_pgvector",
+        "quality_pgvector"
+      ],
+      "bm25": {
+        "k1": 1.5,
+        "b": 0.75
+      },
+      "rrf": {
+        "k": 60,
+        "bm25_weight": 0.5,
+        "embedding_weight": 0.5
+      },
+      "embedding": {
+        "model": "sentence-transformers/all-MiniLM-L6-v2",
+        "revision": "1110a243fdf4706b3f48f1d95db1a4f5529b4d41",
+        "dimension": 384,
+        "dtype": "float32",
+        "cache_file": "data/cache/embeddings_ae626a3b60be3624.npy",
+        "cache_size_bytes": 15891584,
+        "cache_metadata_source_hash_prefix": "7985ad6b8e806250"
+      },
+      "reranker": {
+        "model": "cross-encoder/ms-marco-MiniLM-L-6-v2",
+        "revision": "233902d25c440f23af6f7d6e94d2946bac0bee0a"
+      },
+      "pgvector": {
+        "database": "marketlens_esci_test",
+        "distance": "cosine",
+        "mode": "exact",
+        "approximate": "not applicable because frozen migrations define no HNSW/IVFFlat index",
+        "indexed_count": 10346,
+        "fallback_to_memory": false
+      }
+    },
+    "relevance": {
+      "graded_ndcg": {
+        "E": 3,
+        "S": 2,
+        "C": 1,
+        "I": 0
+      },
+      "recall_at_10": "E or S",
+      "relevant_mrr_at_10": "E or S",
+      "exact_mrr_at_10": "E only",
+      "labels_used_as_retrieval_features": false
+    },
+    "evaluation": {
+      "warmup_split": "train",
+      "parameter_selection_split": "validation",
+      "final_split": "official test fixed subset",
+      "final_test_policy": "run once; preserve first output; no result-driven tuning or rerun",
+      "failure_cases": "predefined five lowest quality_pgvector nDCG@10 ordered by query_id",
+      "latency_percentiles": [
+        50,
+        95,
+        99
+      ],
+      "real_llm_used": false,
+      "model_fine_tuning": false,
+      "offline_model_loading": true
+    }
+  },
+  "post_run_audit_correction": {
+    "recorded_at": "2026-08-14T08:04:00Z",
+    "frozen_config_unchanged": true,
+    "incorrect_original_statement": "The frozen pgvector declaration said no HNSW/IVFFlat index existed.",
+    "correction": "Frozen migration 0002 defines HNSW. Read-only EXPLAIN on marketlens_esci_test and marketlens_wands_test showed the active deterministic distance-plus-product_id query used Seq Scan + Sort, so recorded results are exact; approximate HNSW was not separately run.",
+    "evaluation_rerun": false,
+    "metrics_changed": false
+  }
+}
