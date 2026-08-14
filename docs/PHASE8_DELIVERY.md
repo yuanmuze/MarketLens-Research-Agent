@@ -85,6 +85,14 @@ detailed per-query runs remain ignored. The download helper accepts only the
 pinned official files, verifies LFS size/SHA/schema, resumes through `.part`,
 and atomically publishes validated files.
 
+Before first public release, an object-store scan surfaced blob
+`9e4f7962d0a9cf5e454ce35719bf1d5a30bb7a1d` (66,038,912 bytes), associated
+with local cache path `data/cache/embeddings_fea3dff39a7bb8cc.npy`. Forensic
+checks found it was unreachable: no commit, branch, remote ref, bundle ref, or
+path log referenced it. Therefore no history filter or commit rewrite was
+performed. The public reachable history contains no embedding/cache blob and
+its largest blob is 2,105,328 bytes.
+
 See `reports/phase8_progress.md` for detailed metrics and hashes,
 `reports/phase8_load_test_results.json` for the HTTP matrix, and the two Phase
 8 run manifests for frozen evaluation configuration.

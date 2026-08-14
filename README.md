@@ -332,7 +332,9 @@ Phase 8 uses only Amazon Science's official
 official examples and products parquet files are downloaded; their LFS sizes,
 SHA-256 digests, schemas, and row counts are recorded in
 [`esci_source.json`](data/manifests/esci_source.json). Raw files, derived query
-details, qrels, embeddings, and model weights are never committed.
+details, qrels, embeddings, and model weights are absent from the public
+reachable history. A pre-publication object-store audit also verified that a
+local unreachable cache blob cannot be included by a normal branch push.
 
 ```bash
 uv run python scripts/download_esci.py

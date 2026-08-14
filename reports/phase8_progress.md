@@ -284,11 +284,29 @@ WANDS and ESCI evaluations, and the first formal local Docker HTTP load matrix.
 ## Blockers
 
 - No implementation or evaluation blocker remains.
-- Remote publication remains conditional on GitHub authentication, absence of
-  secrets/oversized history, and a clean non-conflicting remote target.
+- Remote publication remains conditional on GitHub browser authentication and
+  a clean non-conflicting remote target.
+
+## Pre-publication object-store audit
+
+- Created and verified repository-external bundle
+  `D:\VibeCoding\MarketLens-Research-Agent-pre-public-20260814-163714.bundle`
+  (7,143,843 bytes, SHA-256
+  `ABF079043E00AF5ED5363308DE1F582DAFCAA78B55C0A5D792F844286E8FDD21`).
+- Backed up both local data-quality reports outside the repository without
+  deleting or modifying their originals.
+- Rechecked blob `9e4f7962d0a9cf5e454ce35719bf1d5a30bb7a1d`, 66,038,912 bytes, previously
+  associated with `data/cache/embeddings_fea3dff39a7bb8cc.npy` by an ephemeral
+  object scan. It is an unreachable object, absent from all commits, refs, path
+  logs, and the feature branch. The bundle's refs were independently audited.
+- Because no reachable history contained the cache, `git-filter-repo` was not
+  run and no commit SHA changed. The old-to-new mapping is identity for all
+  Phase 0-8 commits.
+- Current reachable history contains no raw dataset, embedding array, model
+  weight, or credential. No reachable blob exceeds 50 MiB; the largest is
+  2,105,328 bytes.
 
 ## Next step
 
-- Finish delivery documentation, run the full offline regression/static gates,
-  audit tracked candidates for secrets and large files, then create grouped
-  commits and publish only if every gate and remote-safety check passes.
+- Install/authenticate GitHub CLI, verify the remote target, then normally push
+  the audited branch as public `main` and wait for real GitHub Actions.

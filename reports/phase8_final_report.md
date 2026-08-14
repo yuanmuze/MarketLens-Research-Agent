@@ -3,8 +3,8 @@
 ## Scope and repository state
 
 - Actual starting commit: `d5e69ae24d6073be7b9b9fcc51b045108c769ad4`.
-- Pre-publication HEAD: `d5e69ae24d6073be7b9b9fcc51b045108c769ad4`;
-  Phase 8 was implemented in the working tree before grouped commits.
+- Phase 8 implementation-freeze commit before release audit:
+  `49e86b48e88eacc063a5ac424d093d15e2215a6c`.
 - Frozen migrations 0001-0004 were not modified and no migration was added.
 - Real LLM/model fine-tuning: not used. Agent integration and load used a
   deterministic Fake LLM; external LLM calls were zero.
@@ -167,10 +167,28 @@ the observed throughput bottleneck; no result-driven tuning/retest occurred.
 - No dedicated secret scanner was installed. Read-only fallback scans found no
   high-confidence secret in delivery candidates. Historical `sk-` matches in
   upstream benchmark text were format-checked as non-secret identifiers.
-- Git history contains one pre-existing 66,038,912-byte embedding blob at
-  `data/cache/embeddings_fea3dff39a7bb8cc.npy`. It exceeds 50 MB but is below
-  GitHub's 100 MB limit. Phase 8 does not add or LFS-track it and does not
-  rewrite prior history without authorization.
+- The initial object-store scan surfaced blob
+  `9e4f7962d0a9cf5e454ce35719bf1d5a30bb7a1d`, 66,038,912 bytes, associated
+  with local cache path `data/cache/embeddings_fea3dff39a7bb8cc.npy`.
+  Repository-external backup and subsequent forensic checks proved it was
+  unreachable: it appears in no commit, branch, remote ref, bundle ref, or path
+  log. A normal branch push cannot transfer it.
+- Because the target was not in reachable history, running `git-filter-repo`
+  would have rewritten safe commits without removing anything. No history
+  filter was run and the Phase 0-8 old-to-new commit map is identity.
+- The public candidate history has no raw dataset, embedding/cache array,
+  model weight, or credential. It has zero blobs over 50 MiB; its largest blob
+  is 2,105,328 bytes.
+- Verified recovery bundle:
+  `D:\VibeCoding\MarketLens-Research-Agent-pre-public-20260814-163714.bundle`,
+  7,143,843 bytes, SHA-256
+  `ABF079043E00AF5ED5363308DE1F582DAFCAA78B55C0A5D792F844286E8FDD21`.
+- Local-artifact backup directory:
+  `D:\VibeCoding\MarketLens-Research-Agent-local-artifacts-20260814-163714`.
+  JSON SHA-256 is
+  `33AE916524B47CE7D9BAFB1AFB0BE3D08D6EB68EAC5EA1C5997FE86896318B01`;
+  Markdown SHA-256 is
+  `5AF9CB67B56A677431745B48CA39BCE38A073FD4AA2E6AD129C3C7F1D9CE36BC`.
 
 Local ignored/unpublished large data and cache artifacts:
 
