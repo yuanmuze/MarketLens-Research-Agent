@@ -1,159 +1,89 @@
-# MarketLens Demo Script
+# MarketLens demo script
 
-Step-by-step walkthrough to demonstrate the MarketLens system. No API keys required.
+This walkthrough uses Python 3.12 and the deterministic Fake LLM. It requires
+no provider API key and makes no external LLM call.
 
-## Prerequisites
+## 1. Clone and install
 
 ```bash
-git clone <this-repo>
+git clone https://github.com/yuanmuze/MarketLens-Research-Agent.git
 cd MarketLens-Research-Agent
-uv sync --python 3.11
-uv pip install mypy ruff
+uv sync --python 3.12 --locked --extra dev --extra db --extra embeddings
 ```
 
-## Step 1: Verify Tests (30 seconds)
+## 2. Verify the offline application
 
 ```bash
-uv run pytest tests/ -q --ignore=tests/extract_langsmith_data.py
+uv run pytest -m "not postgres" -q -rs
+uv run ruff check .
+uv run mypy src scripts
 ```
 
-Expected: 166 passed. Shows the system is healthy.
+Phase 8's frozen release evidence is 437 passed with one expected skip. Test
+counts may grow after hardening; an unexpected skip or reduced coverage is not
+accepted.
 
-## Step 2: Run Evaluation (30 seconds)
-
-```bash
-uv run pytest tests/test_evaluation.py -v -s
-```
-
-Shows actual evaluation numbers with fixture data. Highlights the comparison between BM25, embedding, and hybrid retrieval.
-
-## Step 3: Start the API (30 seconds)
+## 3. Start the local API
 
 ```bash
 uv run uvicorn marketlens.api.main:app --reload
 ```
 
-Console shows:
-```
-INFO:     Started server process
-INFO:     Waiting for application startup.
-INFO:     Loaded 20 products from fixture
-```
+Open `http://127.0.0.1:8000/docs`. The OpenAPI application exposes 10 routes:
+health, liveness, readiness, search, synchronous research, async job creation,
+job status, job report, agent recommendation, and feedback.
 
-## Step 4: Test Health and Search (1 minute)
-
-Open browser to `http://127.0.0.1:8000/docs` (OpenAPI docs) or use curl:
+## 4. Search and health checks
 
 ```bash
-# Health check
-curl http://127.0.0.1:8000/health
-
-# Search for headphones
-curl "http://127.0.0.1:8000/search?q=wireless+headphones&top_k=5"
-
-# Search with budget
-curl "http://127.0.0.1:8000/search?q=noise+cancelling&max_budget=200"
-
-# Search with brand
-curl "http://127.0.0.1:8000/search?q=earbuds&brand=Sony"
+curl http://127.0.0.1:8000/health/live
+curl http://127.0.0.1:8000/health/ready
+curl "http://127.0.0.1:8000/search?q=wireless+headphones&strategy=hybrid&top_k=5"
 ```
 
-Point out: scores, ranks, sources, request_id headers.
+Point out the request ID, ranked products, score source, and readiness backend.
 
-## Step 5: Submit Research (1 minute)
+## 5. Run the offline agent
 
 ```bash
-# Full research with budget constraint
-curl -X POST http://127.0.0.1:8000/research \
+curl -X POST http://127.0.0.1:8000/agent/recommend \
   -H "Content-Type: application/json" \
-  -d '{
-    "query": "best wireless noise cancelling headphones under $350",
-    "max_results": 5
-  }'
-
-# Research with brand preferences
-curl -X POST http://127.0.0.1:8000/research \
-  -H "Content-Type: application/json" \
-  -d '{
-    "query": "best earbuds for calls and music",
-    "preferred_brands": ["Sony", "Apple"],
-    "max_results": 5
-  }'
+  -d '{"message":"best wireless headphones under $200","mode":"balanced","max_results":3}'
 ```
 
-Copy the `job_id` from the response.
+The default `MARKETLENS_USE_FAKE_LLM=true` uses a deterministic local client.
+It demonstrates orchestration and persistence without presenting Fake LLM text
+as real-provider quality evidence.
 
-## Step 6: Check Job and Report (1 minute)
+## 6. Run the Compose stack
 
 ```bash
-# Check job status
-curl http://127.0.0.1:8000/research/jobs/<job_id>
-
-# Get full report
-curl http://127.0.0.1:8000/research/jobs/<job_id>/report
+docker compose -f compose.yaml config
+docker compose -f compose.yaml up -d --build
+docker compose -f compose.yaml ps
 ```
 
-Point out: report structure, evidence references, constraint satisfaction.
+The Compose profile uses PostgreSQL/pgvector, a real local embedding model, and
+the Fake LLM. Before pgvector readiness, import the catalog and build the index
+as described in the README.
 
-## Step 7: Demonstrate Edge Cases (1 minute)
+## 7. Evidence to present
 
-```bash
-# Empty query → 422
-curl "http://127.0.0.1:8000/search?q="
+- 437 passed and 1 expected skip in the Phase 8 frozen offline gate.
+- 33 PostgreSQL integration tests passed.
+- WANDS memory/pgvector parity: 96/96 queries.
+- ESCI memory/pgvector parity: 100/100 queries.
+- Local Docker load matrix: 800/800 successful requests.
+- External LLM calls: 0.
 
-# Non-existent job → 404
-curl http://127.0.0.1:8000/research/jobs/nonexistent
+Historical Phase 6 fixture benchmarks remain in their phase reports and must
+not be substituted for these Phase 8 frozen results.
 
-# Impossible budget → empty results
-curl "http://127.0.0.1:8000/search?q=headphones&max_budget=1"
-```
+## Talking points
 
-## Step 8: Show Code Highlights (2 minutes)
-
-1. **Domain models**: `src/marketlens/models.py` — 10 Pydantic v2 models
-2. **Hybrid retrieval**: `src/marketlens/retrieval/hybrid.py` — RRF fusion
-3. **Agent graph**: `src/marketlens/agent/graph.py` — 8-node LangGraph
-4. **FakeLLM**: `src/marketlens/agent/fake_llm.py` — offline agent
-5. **API**: `src/marketlens/api/routes.py` — 6 endpoints
-
-## Step 9: Run Docker Compose Check (30 seconds)
-
-```bash
-# Validate config
-python -c "
-import yaml
-with open('docker-compose.yml') as f:
-    config = yaml.safe_load(f)
-print(f'Services: {list(config[\"services\"].keys())}')
-"
-
-# If Docker is available:
-# docker compose up -d
-# docker compose ps
-# docker compose down
-```
-
-## Step 10: Lint and Type Check (30 seconds)
-
-```bash
-uv run ruff check src/marketlens/ tests/
-echo "Ruff: clean"
-```
-
-## Key Talking Points During Demo
-
-1. **"This is built on Open Deep Research"** — Shows ability to understand and extend existing codebases
-2. **"No API keys needed"** — Emphasizes offline-first design for testing
-3. **"Every recommendation links to evidence"** — Shows production-quality reliability thinking
-4. **"Hard constraints are Python, not LLM"** — Demonstrates understanding of LLM limitations
-5. **"166 tests, all green"** — Shows testing discipline
-6. **"Swap SQLite for pgvector in production"** — Shows understanding of dev/prod differences
-
-## Troubleshooting
-
-| Issue | Fix |
-|-------|-----|
-| Port 8000 already in use | `uv run uvicorn marketlens.api.main:app --port 8001` |
-| Database locked | Delete `marketlens.db` in project root |
-| Module not found | Run `uv sync` to rebuild |
-| Test failures | Run `uv pip install mypy ruff` to ensure dev deps |
+1. Hard constraints and evidence validation stay in deterministic code.
+2. BM25 and semantic results are fused through reciprocal-rank fusion.
+3. pgvector readiness fails explicitly instead of silently switching backend.
+4. API errors and stored failures are sanitized before crossing trust boundaries.
+5. Open Deep Research attribution is retained while MarketLens has a distinct,
+   tested FastAPI entry point.

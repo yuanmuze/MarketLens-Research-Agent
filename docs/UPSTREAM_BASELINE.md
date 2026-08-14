@@ -1,5 +1,9 @@
 # Upstream Baseline
 
+> **Historical Phase 0 snapshot.** Versions, paths, and environment details in
+> this document describe the imported upstream baseline, not the current
+> MarketLens public entry point.
+
 ## Upstream Information
 
 - **Upstream Repository**: https://github.com/langchain-ai/open_deep_research
@@ -33,16 +37,16 @@ Open Deep Research is a configurable, fully open-source deep research agent that
 - MIT License and copyright notices
 - Original `src/legacy/` implementations (for reference)
 - Original `src/security/auth.py` (LangGraph auth handler)
-- Original `CLAUDE.md` content (as historical reference)
+- Original `CLAUDE.md` content was retained during the baseline phase
 - Original `examples/` directory
 - Base LangGraph patterns and state management concepts from upstream
 
 ## What MarketLens Modifies
 
 - `pyproject.toml`: Updated project name, description, dependencies for MarketLens
-- `CLAUDE.md`: Added MarketLens autonomous execution instructions
-- `src/open_deep_research/`: Will be refactored and extended for product research
-- `tests/`: Will be restructured for MarketLens-specific tests
+- `CLAUDE.md`: Was replaced with MarketLens contributor instructions
+- `src/open_deep_research/`: Was retained as attributed upstream reference code
+- `tests/`: Was extended with the MarketLens-specific offline and PostgreSQL suites
 
 ## What MarketLens Adds (New)
 

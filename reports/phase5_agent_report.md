@@ -1,5 +1,8 @@
 # Phase 5: Evidence-Grounded Single-Agent Product Discovery
 
+> **Historical Phase 5 snapshot.** The test total below is preserved as the
+> result recorded at that milestone, not the current Phase 8 release count.
+
 ## Why This Is an Agent, Not a Fixed Search Pipeline
 
 A fixed search pipeline always follows the same sequence: tokenize → rank → return top-K.

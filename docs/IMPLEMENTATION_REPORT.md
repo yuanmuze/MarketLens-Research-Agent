@@ -1,5 +1,9 @@
 # MarketLens Implementation Report
 
+> **Historical phase snapshot.** Test totals and component counts are preserved
+> as recorded at each milestone; see README and Phase 8 delivery documents for
+> current frozen release evidence.
+
 ## Project Overview
 
 MarketLens Research Agent transforms Open Deep Research into a vertical product research system. It demonstrates skills relevant to AI Application, AI Backend, RAG/Search, and Agent Engineer roles.
@@ -62,7 +66,7 @@ MarketLens Research Agent transforms Open Deep Research into a vertical product 
 - 6 endpoints (`routes.py`): `GET /health`, `GET /search`, `POST /research`, `POST /research/jobs`, `GET /research/jobs/{job_id}`, `GET /research/jobs/{job_id}/report`
 - SQLAlchemy models (`database.py`): `ResearchJobRecord`, `SearchQueryRecord`
 - SQLite default, PostgreSQL/pgvector configurable via `MARKETLENS_DATABASE_URL`
-- Docker Compose (`docker-compose.yml`): FastAPI + pgvector/pg16 with health checks
+- Docker Compose (`compose.yaml`): FastAPI + pgvector/pg16 with health checks
 
 **Key engineering decisions:**
 - Request IDs on every response for observability

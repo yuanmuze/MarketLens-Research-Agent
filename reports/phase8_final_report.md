@@ -180,11 +180,11 @@ the observed throughput bottleneck; no result-driven tuning/retest occurred.
   model weight, or credential. It has zero blobs over 50 MiB; its largest blob
   is 2,105,328 bytes.
 - Verified recovery bundle:
-  `D:\VibeCoding\MarketLens-Research-Agent-pre-public-20260814-163714.bundle`,
+  `<repository-parent>/MarketLens-Research-Agent-pre-public-20260814-163714.bundle`,
   7,143,843 bytes, SHA-256
   `ABF079043E00AF5ED5363308DE1F582DAFCAA78B55C0A5D792F844286E8FDD21`.
 - Local-artifact backup directory:
-  `D:\VibeCoding\MarketLens-Research-Agent-local-artifacts-20260814-163714`.
+  `<repository-parent>/MarketLens-Research-Agent-local-artifacts-20260814-163714`.
   JSON SHA-256 is
   `33AE916524B47CE7D9BAFB1AFB0BE3D08D6EB68EAC5EA1C5997FE86896318B01`;
   Markdown SHA-256 is

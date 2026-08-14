@@ -290,7 +290,7 @@ WANDS and ESCI evaluations, and the first formal local Docker HTTP load matrix.
 ## Pre-publication object-store audit
 
 - Created and verified repository-external bundle
-  `D:\VibeCoding\MarketLens-Research-Agent-pre-public-20260814-163714.bundle`
+  `<repository-parent>/MarketLens-Research-Agent-pre-public-20260814-163714.bundle`
   (7,143,843 bytes, SHA-256
   `ABF079043E00AF5ED5363308DE1F582DAFCAA78B55C0A5D792F844286E8FDD21`).
 - Backed up both local data-quality reports outside the repository without

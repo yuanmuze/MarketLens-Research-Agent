@@ -1,14 +1,23 @@
 # 🔬 MarketLens Research Agent
 
-> Built on [Open Deep Research](https://github.com/langchain-ai/open_deep_research) (MIT License)
+[![MarketLens CI](https://github.com/yuanmuze/MarketLens-Research-Agent/actions/workflows/ci.yml/badge.svg)](https://github.com/yuanmuze/MarketLens-Research-Agent/actions/workflows/ci.yml)
+[![Python 3.12](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![PostgreSQL + pgvector](https://img.shields.io/badge/PostgreSQL-pgvector-4169E1?logo=postgresql&logoColor=white)](https://github.com/pgvector/pgvector)
+[![MIT License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-MarketLens is a vertical product research system demonstrating AI Application, AI Backend, RAG/Search, and Agent Engineer skills. It combines **hybrid retrieval** (BM25 + embeddings), **LangGraph agents**, and a **FastAPI** backend for evidence-grounded product recommendations.
+MarketLens is an offline-first product research system combining **FastAPI**,
+**PostgreSQL/pgvector**, **BM25 + embedding RRF hybrid retrieval**, and a
+deterministic **Fake LLM agent** for evidence-grounded recommendations without
+API keys. It is built on the MIT-licensed
+[Open Deep Research](https://github.com/langchain-ai/open_deep_research)
+baseline; attribution and the upstream/current-work boundary are documented in
+[UPSTREAM_VS_MY_WORK.md](docs/UPSTREAM_VS_MY_WORK.md).
 
 ## What This Project Demonstrates
 
 - **RAG/Search**: BM25 keyword search, embedding semantic search, Reciprocal Rank Fusion hybrid retrieval, optional reranker
 - **Agent Engineering**: LangGraph single-agent workflow with 8 nodes, LangChain tools, FakeLLM for offline testing
-- **AI Backend**: FastAPI with 6 endpoints, SQLAlchemy persistence (SQLite/PostgreSQL), Pydantic v2 validation
+- **AI Backend**: FastAPI with 10 endpoints, SQLAlchemy persistence (SQLite/PostgreSQL), Pydantic v2 validation
 - **ML Systems**: Reproducible evaluation benchmarks (Recall@10, nDCG@10, constraint satisfaction), GitHub Actions CI
 - **Vector Backend**: Explicit memory/pgvector retrieval with readiness checks,
   atomic idempotent indexing, and measured backend parity
@@ -17,12 +26,12 @@ MarketLens is a vertical product research system demonstrating AI Application, A
 
 ```bash
 # Clone and install (all extras: dev tools, data pipeline, embeddings)
-git clone <this-repo>
+git clone https://github.com/yuanmuze/MarketLens-Research-Agent.git
 cd MarketLens-Research-Agent
-uv sync --python 3.11 --extra dev --extra data --extra embeddings
+uv sync --python 3.12 --locked --extra dev --extra data --extra db --extra embeddings
 
-# Run all first-party tests (351 passed, 1 skip — no API keys needed)
-uv run pytest
+# Run offline first-party tests (PostgreSQL tests use a separate marker suite)
+uv run pytest -m "not postgres" -q -rs
 
 # Start the API
 uv run uvicorn marketlens.api.main:app --reload
@@ -34,6 +43,20 @@ uv run uvicorn marketlens.api.main:app --reload
 > `src/security/`) is excluded from pytest collection, ruff, and mypy.
 > These are vendored from the original Open Deep Research upstream and
 > are kept for reference only, not maintained as first-party code.
+
+## Phase 8 Frozen Release Evidence
+
+These are fixed Phase 8 release results, not claims about a newly run or full
+official leaderboard benchmark.
+
+| Gate | Frozen result |
+|------|---------------|
+| Offline test suite | 437 passed, 1 expected skip |
+| PostgreSQL integration suite | 33 passed |
+| WANDS memory/pgvector ranking parity | 96/96 queries |
+| ESCI memory/pgvector ranking parity | 100/100 queries |
+| Local Docker load matrix | 800/800 requests successful |
+| External LLM calls | 0 |
 
 ## Architecture
 
@@ -62,6 +85,28 @@ User Query → FastAPI → LangGraph Agent (8 nodes) → Hybrid Retrieval
 | `/health/live` | GET | Liveness probe (process alive) |
 | `/health/ready` | GET | Readiness probe (catalog + retrieval usable) |
 
+### Offline agent example
+
+The default `MARKETLENS_USE_FAKE_LLM=true` performs no external LLM call:
+
+```bash
+curl -X POST http://127.0.0.1:8000/agent/recommend \
+  -H "Content-Type: application/json" \
+  -d '{"message":"best wireless headphones under $200","mode":"balanced","max_results":3}'
+```
+
+Representative response shape:
+
+```json
+{
+  "status": "completed",
+  "answer": "Here are evidence-backed recommendations from the local MarketLens catalog.",
+  "mode_used": "hybrid",
+  "degraded": false,
+  "recommendations": []
+}
+```
+
 ## Project Structure
 
 ```
@@ -80,8 +125,11 @@ scripts/
 ## Running Tests
 
 ```bash
-# Full test suite (351 passed, 1 skip — all offline, no API keys)
-uv run pytest
+# Offline suite (frozen Phase 8 evidence: 437 passed, 1 expected skip)
+uv run pytest -m "not postgres" -q -rs
+
+# Dedicated PostgreSQL suite (frozen Phase 8 evidence: 33 passed)
+uv run pytest -m postgres -q -rs
 
 # Specific test groups
 uv run pytest tests/test_models.py -v        # 16 model tests
@@ -116,7 +164,7 @@ This project is built on [langchain-ai/open_deep_research](https://github.com/la
 
 **Upstream provides**: Multi-LLM deep research agent, Tavily/OpenAI/Anthropic search, MCP support, LangGraph Studio UI, LangSmith evaluation.
 
-**MarketLens adds**: Product catalog + hybrid retrieval, evidence-grounded research agent, FastAPI + persistence, offline fake LLM, evaluation benchmarks, 166 pytest tests.
+**MarketLens adds**: Product catalog + hybrid retrieval, evidence-grounded research agent, FastAPI + persistence, offline Fake LLM, reproducible evaluation, and PostgreSQL/pgvector validation. Current release evidence is summarized above; older phase reports retain their historical snapshot counts.
 
 See [docs/UPSTREAM_VS_MY_WORK.md](docs/UPSTREAM_VS_MY_WORK.md) for full comparison.
 
@@ -186,7 +234,10 @@ uv run python scripts/prepare_electronics_data.py --dry-run
 uv run python scripts/prepare_electronics_data.py --local-file /path/to/meta_Electronics.jsonl.gz
 ```
 
-## Retrieval Benchmark
+## Historical Phase 6 Retrieval Benchmark
+
+The commands and fixture results in this section are a historical Phase 6
+snapshot. They are separate from the frozen Phase 8 WANDS/ESCI evaluation.
 
 ```bash
 # Run 4-strategy comparison (fixture data, offline)
@@ -233,7 +284,7 @@ print(generate_markdown_report(reports, queries))
 
 ```bash
 # Start dev PostgreSQL 16 (development only, not full deployment)
-docker compose up -d db
+docker compose -f compose.yaml up -d db
 
 # Configure DATABASE_URL (matching compose.yaml defaults)
 export MARKETLENS_DATABASE_URL="postgresql+psycopg2://marketlens:marketlens@localhost:5432/marketlens"
@@ -248,7 +299,7 @@ uv run python scripts/import_products.py --input data/processed/electronics_2000
 export MARKETLENS_CATALOG_BACKEND=postgres
 
 # Shut down when done
-docker compose down
+docker compose -f compose.yaml down
 ```
 
 > Never run `alembic downgrade` on a normal development database — it is
@@ -257,7 +308,7 @@ docker compose down
 ### Start the full stack (db + API) — one command
 
 ```bash
-docker compose up -d
+docker compose -f compose.yaml up -d
 # API: http://127.0.0.1:8000  |  liveness: /health/live  |  readiness: /health/ready
 ```
 
@@ -316,7 +367,9 @@ uv run pytest -m postgres
 | `TAVILY_API_KEY` | No | empty | Enables web search tool |
 | `OPENAI_API_KEY` | No | empty | For legacy real LLM mode |
 | `MARKETLENS_AGENT_API_KEY` | No | empty | OpenAI-compatible Agent provider; unused with Fake LLM |
-| `MARKETLENS_USE_FAKE_LLM` | No | `false` | Deterministic local Agent; no external LLM calls |
+| `MARKETLENS_USE_FAKE_LLM` | No | `true` | Deterministic local Agent; no external LLM calls |
+| `MARKETLENS_CORS_ORIGINS` | No | localhost/127.0.0.1 origins | Comma-separated browser origin allowlist |
+| `MARKETLENS_CORS_ALLOW_CREDENTIALS` | No | `false` | Rejects `*` when enabled |
 | `MARKETLENS_DATABASE_URL` | No | `sqlite:///marketlens_persistence.db` | DB connection (Phase 6 persistence) |
 | `MARKETLENS_CATALOG_BACKEND` | No | `json` | `json` or `postgres` |
 | `MARKETLENS_CATALOG_PATH` | No | auto | JSON source/cache identity path |
@@ -360,7 +413,7 @@ uv run ruff check .
 uv run mypy src scripts
 uv run alembic current
 uv run alembic check
-docker compose config
+docker compose -f compose.yaml config
 ```
 
 Phase 8's final local gate passed 437 tests with one expected skip, the real

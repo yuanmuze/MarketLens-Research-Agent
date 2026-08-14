@@ -1,5 +1,9 @@
 # Upstream vs. My Work
 
+> **Historical Phase 1-5 snapshot.** Component counts below record the state at
+> those milestones. Current Phase 8 release evidence is summarized in README;
+> this document does not override the frozen Phase 8 numbers.
+
 ## Upstream: Open Deep Research
 
 **Repository**: [langchain-ai/open_deep_research](https://github.com/langchain-ai/open_deep_research)
@@ -46,8 +50,9 @@
 ### What I Modified
 
 - `pyproject.toml`: Renamed project to `marketlens-research-agent`, added new packages
-- `CLAUDE.md`: Added MarketLens autonomous execution instructions
-- `langgraph.json`: Will point to MarketLens graph
+- `CLAUDE.md`: Now contains concise MarketLens contributor instructions
+- `langgraph.json`: Removed in Phase 8.1 because it referenced an unsupported
+  upstream graph rather than a tested MarketLens public entry point
 
 ### What I Built (New)
 
@@ -83,7 +88,7 @@
 | Routes | `src/marketlens/api/routes.py` | 6 endpoints (health, search, research, jobs) |
 | API Models | `src/marketlens/api/models.py` | Request/response Pydantic models |
 | Database | `src/marketlens/api/database.py` | SQLAlchemy with ResearchJobRecord, SearchQueryRecord |
-| Docker | `Dockerfile`, `docker-compose.yml` | FastAPI + pgvector/pg16 |
+| Docker | `Dockerfile`, `compose.yaml` | FastAPI + pgvector/pg16 |
 | Tests | `tests/test_api.py` | 23 tests |
 
 #### Phase 4: Evaluation (~700 lines)
