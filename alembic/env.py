@@ -12,14 +12,18 @@ from logging.config import fileConfig
 from sqlalchemy import create_engine, pool
 
 from alembic import context
-from marketlens.persistence.models import Base
+from marketlens.api.database import Base as APIBase
+from marketlens.persistence.models import Base as PersistenceBase
 
 config = context.config
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-target_metadata = Base.metadata
+# The API's legacy research/search tables and the Phase 6+ persistence tables
+# intentionally use separate declarative bases. Alembic must see both or
+# `alembic check` incorrectly proposes dropping the API-owned tables.
+target_metadata = [PersistenceBase.metadata, APIBase.metadata]
 
 
 def get_url() -> str:

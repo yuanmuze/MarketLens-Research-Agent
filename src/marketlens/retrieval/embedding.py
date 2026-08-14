@@ -7,9 +7,12 @@ sentence-transformers implementation is available as an optional backend.
 
 import logging
 from abc import ABC, abstractmethod
+from collections.abc import Collection
 from typing import Any
 
 import numpy as np
+
+from marketlens.retrieval.semantic import SemanticBackendStatus
 
 logger = logging.getLogger(__name__)
 
@@ -72,7 +75,7 @@ class FakeEmbeddingBackend(EmbeddingBackend):
         """
         import hashlib
 
-        embeddings = np.zeros((len(texts), self._dim), dtype=np.float32)
+        embeddings: np.ndarray = np.zeros((len(texts), self._dim), dtype=np.float32)
         for i, text in enumerate(texts):
             # Use MD5 hash to seed a deterministic random vector
             hash_bytes = hashlib.md5(text.encode("utf-8"), usedforsecurity=False).digest()  # noqa: S324
@@ -126,9 +129,9 @@ class SentenceTransformersBackend(EmbeddingBackend):
             self._load_model()
         assert self._model is not None, "Model failed to load"
         try:
-            return self._model.get_sentence_embedding_dimension()
-        except AttributeError:
             return self._model.get_embedding_dimension()
+        except AttributeError:
+            return self._model.get_sentence_embedding_dimension()
 
     @property
     def model_info(self) -> dict[str, str | int]:
@@ -155,9 +158,9 @@ class SentenceTransformersBackend(EmbeddingBackend):
 
             self._model = SentenceTransformer(self._model_name)
             try:
-                dim = self._model.get_sentence_embedding_dimension()
-            except AttributeError:
                 dim = self._model.get_embedding_dimension()
+            except AttributeError:
+                dim = self._model.get_sentence_embedding_dimension()
             logger.info(
                 "Loaded sentence-transformers model: %s (dim=%d)",
                 self._model_name, dim,
@@ -215,6 +218,20 @@ class EmbeddingRetriever:
         return self._backend.dim
 
     @property
+    def backend_name(self) -> str:
+        """Storage/search backend name."""
+        return "memory"
+
+    @property
+    def model_name(self) -> str:
+        """Embedding model identifier used by this retriever."""
+        if isinstance(self._backend, SentenceTransformersBackend):
+            return self._backend._model_name
+        if isinstance(self._backend, FakeEmbeddingBackend):
+            return f"fake-hash-{self._backend.dim}"
+        return type(self._backend).__name__
+
+    @property
     def is_fitted(self) -> bool:
         """Whether the retriever has been fitted."""
         return self._is_fitted
@@ -245,12 +262,18 @@ class EmbeddingRetriever:
         )
         return self
 
-    def search(self, query: str, top_k: int = 20) -> list[tuple[str, float]]:
+    def search(
+        self,
+        query: str,
+        top_k: int = 20,
+        candidate_ids: Collection[str] | None = None,
+    ) -> list[tuple[str, float]]:
         """Search for semantically similar documents.
 
         Args:
             query: The search query string.
             top_k: Number of top results.
+            candidate_ids: Optional product IDs allowed in the result set.
 
         Returns:
             List of (doc_id, cosine_similarity) tuples, sorted descending.
@@ -268,17 +291,40 @@ class EmbeddingRetriever:
         # Compute cosine similarity
         similarities = np.dot(self._embeddings, query_vec)
 
-        # Get top-k indices
-        if len(similarities) <= top_k:
-            top_indices = np.argsort(similarities)[::-1]
-        else:
-            top_indices = np.argpartition(similarities, -top_k)[-top_k:]
-            top_indices = top_indices[np.argsort(similarities[top_indices])[::-1]]
+        allowed = set(candidate_ids) if candidate_ids is not None else None
+        ranked_indices = sorted(
+            range(len(similarities)),
+            key=lambda idx: (-float(similarities[idx]), self._doc_ids[idx]),
+        )
 
-        results = []
-        for idx in top_indices:
+        results: list[tuple[str, float]] = []
+        for idx in ranked_indices:
+            if allowed is not None and self._doc_ids[idx] not in allowed:
+                continue
             score = float(similarities[idx])
             if score > 0:
                 results.append((self._doc_ids[idx], score))
+            if len(results) >= top_k:
+                break
 
         return results
+
+    def status(
+        self,
+        expected_product_ids: Collection[str] | None = None,
+    ) -> SemanticBackendStatus:
+        """Return in-memory index readiness for a catalog."""
+        expected = set(expected_product_ids or self._doc_ids)
+        indexed = set(self._doc_ids)
+        missing = expected - indexed
+        ready = self._is_fitted and self._embeddings is not None and not missing
+        detail = "" if ready else "memory semantic index is not fitted for the full catalog"
+        return SemanticBackendStatus(
+            backend=self.backend_name,
+            model=self.model_name,
+            dimension=self.dim,
+            ready=ready,
+            indexed_count=len(indexed & expected),
+            expected_count=len(expected),
+            detail=detail,
+        )

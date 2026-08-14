@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 
 from marketlens.agent.models import (
     AgentRequest,
@@ -18,7 +18,7 @@ from marketlens.agent.models import (
     FeedbackResponse,
 )
 from marketlens.agent.orchestrator import AgentOrchestrator
-from marketlens.agent.providers.base import LLMClient
+from marketlens.agent.providers.base import FakeLLMClient, LLMClient
 from marketlens.agent.tools import AgentTools
 from marketlens.api.database import (
     ResearchJobRecord,
@@ -37,6 +37,9 @@ from marketlens.api.models import (
     ResearchRequest as APIResearchRequest,
 )
 from marketlens.catalog import ProductCatalog
+from marketlens.config import MarketLensSettings
+from marketlens.retrieval.semantic import SemanticBackendUnavailableError
+from marketlens.retrieval.service import RetrievalService, SessionFactory
 
 logger = logging.getLogger(__name__)
 
@@ -44,33 +47,80 @@ router = APIRouter()
 
 # Global catalog and service (initialized at app startup)
 _catalog: ProductCatalog | None = None
-_service: Any = None  # RetrievalService
+_service: RetrievalService | None = None
+_settings = MarketLensSettings()
+_startup_error = ""
 
 
 def init_catalog(
     catalog: ProductCatalog,
     *,
     data_path: Path | None = None,
-) -> None:
+    settings: MarketLensSettings | None = None,
+    session_factory: SessionFactory | None = None,
+) -> bool:
     """Initialize the global catalog and retrieval service.
 
     Args:
         catalog: ProductCatalog instance.
         data_path: Path to product JSON (for embedding cache key).
+        settings: Validated runtime settings. Defaults to environment values.
+        session_factory: Optional injected PostgreSQL session factory.
+
+    Returns:
+        Whether the configured retrieval service initialized successfully.
     """
-    global _catalog, _service
+    global _catalog, _service, _settings, _startup_error
     _catalog = catalog
+    _settings = settings or MarketLensSettings.from_env()
+    _service = None
+    _startup_error = ""
 
-    import os
+    # Fixture-based memory tests stay offline. pgvector never receives this
+    # implicit fake override.
+    use_fake = _settings.use_fake_embeddings or (
+        data_path is None and _settings.semantic_backend == "memory"
+    )
+    if _settings.semantic_backend == "pgvector" and use_fake:
+        _startup_error = (
+            "pgvector requires a real 384-dimensional embedding model; "
+            "fake embeddings are not allowed"
+        )
+        logger.error("Retrieval startup failed: invalid pgvector embedding configuration")
+        return False
 
-    from marketlens.retrieval.service import RetrievalService
-    # Always allow fake embedding override for tests
-    use_fake = os.environ.get("MARKETLENS_USE_FAKE_EMBEDDINGS", "").lower() == "true" or data_path is None
-    _service = RetrievalService(catalog, data_path=data_path, use_fake_embeddings=use_fake)
-    _service.initialize()
+    if _settings.semantic_backend == "pgvector" and session_factory is None:
+        from marketlens.persistence.engine import get_session_factory
+
+        session_factory = get_session_factory()
+
+    try:
+        service = RetrievalService(
+            catalog,
+            data_path=data_path,
+            use_fake_embeddings=use_fake,
+            semantic_backend=_settings.semantic_backend,
+            session_factory=session_factory,
+            embedding_model_name=_settings.embedding_model,
+        )
+        service.initialize()
+    except (OSError, RuntimeError, ValueError, SemanticBackendUnavailableError) as exc:
+        _startup_error = f"retrieval unavailable: {type(exc).__name__}: {exc}"
+        logger.error("Retrieval startup failed: %s", type(exc).__name__)
+        return False
+
+    _service = service
+    return True
 
 
-def get_service() -> Any:
+def mark_startup_unavailable(message: str) -> None:
+    """Record a sanitized startup failure while keeping liveness available."""
+    global _service, _startup_error
+    _service = None
+    _startup_error = message
+
+
+def get_service() -> RetrievalService:
     """Get the global RetrievalService instance.
 
     Returns:
@@ -80,7 +130,10 @@ def get_service() -> Any:
         HTTPException: If not initialized.
     """
     if _service is None:
-        raise HTTPException(status_code=500, detail="Retrieval service not initialized")
+        raise HTTPException(
+            status_code=503,
+            detail=_startup_error or "retrieval service not initialized",
+        )
     return _service
 
 
@@ -104,6 +157,14 @@ async def health_check() -> HealthResponse:
     extra: dict[str, Any] = {}
     if _service is not None:
         extra = _service.status()
+    else:
+        extra = {
+            "catalog_backend": _settings.catalog_backend,
+            "semantic_backend": _settings.semantic_backend,
+            "embedding_model": _settings.embedding_model,
+            "semantic_index_ready": False,
+            "startup_error": _startup_error or "service not initialized",
+        }
 
     return HealthResponse(
         status="ok",
@@ -126,12 +187,17 @@ async def health_ready() -> dict[str, Any]:
     Returns 503 when the retrieval service or catalog is not ready.
     """
     if _service is None or _catalog is None:
-        raise HTTPException(status_code=503, detail="not ready: service not initialized")
+        raise HTTPException(
+            status_code=503,
+            detail=_startup_error or "not ready: service not initialized",
+        )
 
     # Check retrieval service is actually usable
     try:
         status = _service.status()
-        retrieval_ready = status.get("retrieval_service_ready", False)
+        retrieval_ready = status.get("retrieval_service_ready", False) and status.get(
+            "semantic_index_ready", False
+        )
     except Exception as e:
         logger.warning("Readiness check failed: %s", e)
         raise HTTPException(status_code=503, detail="not ready: retrieval unavailable") from e
@@ -142,7 +208,13 @@ async def health_ready() -> dict[str, Any]:
     return {
         "status": "ready",
         "catalog_size": len(_catalog),
+        "catalog_backend": _settings.catalog_backend,
+        "semantic_backend": status.get("semantic_backend", "unknown"),
         "embedding_backend": status.get("embedding_backend", "unknown"),
+        "embedding_model": status.get("embedding_model", "unknown"),
+        "embedding_dim": status.get("embedding_dim", 0),
+        "semantic_index_ready": status.get("semantic_index_ready", False),
+        "semantic_indexed_count": status.get("semantic_indexed_count", 0),
     }
 
 
@@ -151,6 +223,7 @@ async def health_ready() -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 @router.get("/search", response_model=SearchResponse)
 async def search_products(
+    request: Request,
     q: str = Query(..., min_length=1, description="Search query"),
     strategy: str = Query(default="hybrid", description="Strategy: bm25, embedding, hybrid, rerank"),
     top_k: int = Query(default=20, ge=1, le=100, description="Max results"),
@@ -165,15 +238,15 @@ async def search_products(
     Supports four strategies: bm25, embedding, hybrid, rerank.
     Structured filters: brand, price range, rating.
     """
-    request_id = f"req-{uuid.uuid4().hex[:12]}"
+    request_id = getattr(request.state, "request_id", f"req-{uuid.uuid4().hex[:12]}")
 
     try:
         service = get_service()
     except HTTPException:
         raise
     except Exception as e:
-        logger.error("Search initialization error: %s", e)
-        raise HTTPException(status_code=500, detail="Search service unavailable")
+        logger.error("Search initialization error: %s", type(e).__name__)
+        raise HTTPException(status_code=503, detail="search service unavailable") from e
 
     try:
         output = service.search(
@@ -189,9 +262,12 @@ async def search_products(
         )
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
+    except SemanticBackendUnavailableError as e:
+        logger.error("Semantic search unavailable: %s", type(e).__name__)
+        raise HTTPException(status_code=503, detail="semantic backend unavailable") from e
     except Exception as e:
-        logger.error("Search error: %s", e)
-        raise HTTPException(status_code=500, detail=f"Search failed: {e}")
+        logger.error("Search error: %s", type(e).__name__)
+        raise HTTPException(status_code=500, detail="search failed") from e
 
     # Persist search query
     try:
@@ -432,6 +508,34 @@ class _NoOpLLM(LLMClient):
 def _build_llm_client() -> LLMClient:
     """Build LLM client from environment variables or return NoOp."""
     import os
+    if _settings.use_fake_llm:
+        return FakeLLMClient(
+            [
+                {
+                    "content": "",
+                    "tool_calls": [
+                        {
+                            "id": "phase8_fake_search",
+                            "type": "function",
+                            "function": {
+                                "name": "search_catalog",
+                                "arguments": (
+                                    '{"query":"wireless headphones",'
+                                    '"mode":"balanced","top_k":5}'
+                                ),
+                            },
+                        }
+                    ],
+                },
+                {
+                    "content": (
+                        "Here are evidence-backed recommendations from the "
+                        "local MarketLens catalog."
+                    )
+                },
+            ],
+            model_name="phase8-deterministic-fake",
+        )
     api_key = os.environ.get("MARKETLENS_AGENT_API_KEY", "")
     base_url = os.environ.get("MARKETLENS_AGENT_BASE_URL", "https://api.openai.com/v1")
     model = os.environ.get("MARKETLENS_AGENT_MODEL", "gpt-4.1-mini")

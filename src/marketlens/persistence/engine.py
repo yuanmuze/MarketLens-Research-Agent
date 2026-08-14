@@ -72,5 +72,7 @@ def session_scope() -> Iterator[Session]:
 def reset_engine() -> None:
     """Reset cached engine/session (used by tests to swap DB URL)."""
     global _engine, _SessionLocal
+    if _engine is not None:
+        _engine.dispose()
     _engine = None
     _SessionLocal = None

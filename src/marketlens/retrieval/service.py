@@ -19,11 +19,13 @@ import hashlib
 import json
 import logging
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import numpy as np
+from sqlalchemy.orm import Session
 
 from marketlens.catalog import ProductCatalog
 from marketlens.retrieval.bm25 import BM25Retriever
@@ -33,10 +35,16 @@ from marketlens.retrieval.embedding import (
     FakeEmbeddingBackend,
     SentenceTransformersBackend,
 )
+from marketlens.retrieval.pgvector_retriever import PgVectorEmbeddingRetriever
 from marketlens.retrieval.reranker import (
     CrossEncoderReranker,
     KeywordReranker,
     Reranker,
+)
+from marketlens.retrieval.semantic import (
+    SemanticBackendStatus,
+    SemanticBackendUnavailableError,
+    SemanticRetriever,
 )
 
 logger = logging.getLogger(__name__)
@@ -45,6 +53,9 @@ CACHE_DIR = Path("data/cache")
 
 # Schema version — bump when _build_search_text logic changes
 TEXT_SCHEMA_VERSION = "v1"
+
+SemanticBackendName = Literal["memory", "pgvector"]
+SessionFactory = Callable[[], Session]
 
 
 def _compute_data_hash(data_path: Path) -> str:
@@ -81,6 +92,7 @@ class RetrievalOutput:
     elapsed_ms: float
     model_used: str = ""
     embedding_dim: int = 0
+    semantic_backend: str = "memory"
 
 
 @dataclass
@@ -208,6 +220,10 @@ class RetrievalService:
         embedding_backend: EmbeddingBackend | None = None,
         use_fake_embeddings: bool = False,
         reranker: Reranker | None = None,
+        semantic_backend: SemanticBackendName = "memory",
+        session_factory: SessionFactory | None = None,
+        embedding_model_name: str = "all-MiniLM-L6-v2",
+        semantic_retriever: SemanticRetriever | None = None,
     ) -> None:
         """Create the retrieval service.
 
@@ -221,7 +237,15 @@ class RetrievalService:
                 a real SentenceTransformer is required.
             reranker: Reranker instance. Defaults to CrossEncoderReranker.
                 Use FakeReranker/KeywordReranker for tests.
+            semantic_backend: "memory" (default) or "pgvector".
+                pgvector queries an explicitly pre-built PostgreSQL vector
+                index via cosine similarity.
+            session_factory: SQLAlchemy session factory required by pgvector.
+            embedding_model_name: Model identifier shared by indexing and query encoding.
+            semantic_retriever: Optional pre-built retriever for dependency injection.
         """
+        if semantic_backend not in ("memory", "pgvector"):
+            raise ValueError(f"semantic_backend must be 'memory' or 'pgvector', got {semantic_backend!r}")
         self._catalog = catalog
         self._data_path = data_path
         self._products = catalog.get_all_products()
@@ -231,10 +255,14 @@ class RetrievalService:
 
         # Backends
         self._bm25: BM25Retriever | None = None
-        self._embedding: EmbeddingRetriever | None = None
+        self._memory_embedding: EmbeddingRetriever | None = None
+        self._semantic_retriever: SemanticRetriever | None = semantic_retriever
         self._embedding_backend = embedding_backend
         self._use_fake_embeddings = use_fake_embeddings
         self._reranker: Reranker | None = reranker
+        self._semantic_backend = semantic_backend
+        self._session_factory = session_factory
+        self._embedding_model_name = embedding_model_name
         self._is_initialized = False
         self._embedding_cache_hit = False
 
@@ -266,21 +294,47 @@ class RetrievalService:
             self._bm25 = BM25Retriever().fit(["empty"], ["__empty__"])
             logger.info("BM25 index empty (0 docs)")
 
-        # Embedding — compute or load from cache
-        self._init_embeddings()
-        logger.info("Embeddings ready (dim=%d)", self._embedding_backend.dim if self._embedding_backend else 0)
+        # Semantic retrieval: in-memory index or pre-built pgvector index.
+        self._init_semantic_retriever()
+        semantic = self._require_semantic_retriever()
+        logger.info(
+            "Semantic retrieval ready (backend=%s, model=%s, dim=%d)",
+            semantic.backend_name,
+            semantic.model_name,
+            semantic.dim,
+        )
 
         elapsed = (time.monotonic() - t0) * 1000
         logger.info("RetrievalService initialized in %.0f ms", elapsed)
         self._is_initialized = True
         return self
 
-    def _init_embeddings(self) -> None:
-        """Initialize embedding backend and retriever, loading cache if available."""
+    def _init_semantic_retriever(self) -> None:
+        """Initialize the explicitly configured semantic retriever."""
+        if self._semantic_retriever is not None:
+            if self._semantic_retriever.backend_name != self._semantic_backend:
+                raise ValueError(
+                    "semantic_retriever backend does not match semantic_backend: "
+                    f"{self._semantic_retriever.backend_name!r} != {self._semantic_backend!r}"
+                )
+            self._validate_semantic_readiness()
+            return
+
+        if self._semantic_backend == "pgvector":
+            self._init_pgvector_retriever()
+        else:
+            self._init_memory_retriever()
+        self._validate_semantic_readiness()
+
+    def _init_memory_retriever(self) -> None:
+        """Build or load the in-memory embedding index."""
         if len(self._product_dicts) == 0:
             if self._embedding_backend is None:
                 self._embedding_backend = FakeEmbeddingBackend(dim=8, seed=0)
-            self._embedding = EmbeddingRetriever(self._embedding_backend).fit(["empty"], ["__empty__"])
+            self._memory_embedding = EmbeddingRetriever(self._embedding_backend).fit(
+                ["empty"], ["__empty__"]
+            )
+            self._semantic_retriever = self._memory_embedding
             return
 
         # Select backend
@@ -289,27 +343,83 @@ class RetrievalService:
                 self._embedding_backend = FakeEmbeddingBackend(dim=128, seed=42)
                 logger.info("Using fake embedding (explicitly requested)")
             else:
-                self._embedding_backend = self._create_real_backend()
+                self._embedding_backend = self._create_real_backend(self._embedding_model_name)
 
         # Try cache for real backends
         if self._data_path and isinstance(self._embedding_backend, SentenceTransformersBackend):
             self._try_load_cache()
-            if self._embedding is not None:
+            if self._memory_embedding is not None:
+                self._semantic_retriever = self._memory_embedding
                 return
 
         # Compute fresh
         logger.info("Computing embeddings for %d products...", len(self._product_dicts))
-        self._embedding = EmbeddingRetriever(self._embedding_backend).fit(
+        self._memory_embedding = EmbeddingRetriever(self._embedding_backend).fit(
             self._search_texts,
             [str(p["product_id"]) for p in self._product_dicts],
         )
+        self._semantic_retriever = self._memory_embedding
 
         # Save cache
         if self._data_path and isinstance(self._embedding_backend, SentenceTransformersBackend):
             self._save_cache()
 
+    def _init_pgvector_retriever(self) -> None:
+        """Connect query encoding to an existing pgvector index."""
+        if self._embedding_backend is None:
+            if self._use_fake_embeddings:
+                raise ValueError(
+                    "pgvector requires a real 384-dimensional embedding model; "
+                    "fake embeddings are only supported through explicit test injection"
+                )
+            self._embedding_backend = self._create_real_backend(self._embedding_model_name)
+
+        if isinstance(self._embedding_backend, SentenceTransformersBackend):
+            if self._embedding_backend._model_name != self._embedding_model_name:
+                raise ValueError(
+                    "embedding backend model does not match configured model name: "
+                    f"{self._embedding_backend._model_name!r} != {self._embedding_model_name!r}"
+                )
+
+        session_factory = self._session_factory
+        if session_factory is None:
+            from marketlens.persistence.engine import get_engine, get_session_factory
+
+            engine = get_engine()
+            if engine.dialect.name != "postgresql":
+                raise SemanticBackendUnavailableError(
+                    "pgvector semantic backend requires a PostgreSQL database"
+                )
+            session_factory = get_session_factory()
+
+        self._semantic_retriever = PgVectorEmbeddingRetriever(
+            self._embedding_backend,
+            session_factory,
+            self._embedding_model_name,
+        )
+
+    def _validate_semantic_readiness(self) -> None:
+        """Fail initialization when the configured semantic index is incomplete."""
+        semantic = self._require_semantic_retriever()
+        try:
+            status = semantic.status(self._product_index.keys())
+        except Exception as exc:
+            raise SemanticBackendUnavailableError(
+                f"{semantic.backend_name} semantic readiness check failed: {type(exc).__name__}"
+            ) from exc
+        if not status.ready:
+            raise SemanticBackendUnavailableError(
+                f"{status.backend} semantic backend is not ready: {status.detail}"
+            )
+
+    def _require_semantic_retriever(self) -> SemanticRetriever:
+        """Return the initialized retriever or fail with a stable error."""
+        if self._semantic_retriever is None:
+            raise SemanticBackendUnavailableError("semantic retriever is not initialized")
+        return self._semantic_retriever
+
     def _try_load_cache(self) -> None:
-        """Try to load embedding cache from disk. Sets self._embedding on success."""
+        """Try to load an embedding cache into the memory retriever."""
         if self._data_path is None or not isinstance(self._embedding_backend, SentenceTransformersBackend):
             return
 
@@ -344,10 +454,10 @@ class RetrievalService:
                 logger.warning("Cache validation failed: %s. Recomputing.", "; ".join(errors))
                 return
 
-            self._embedding = EmbeddingRetriever(self._embedding_backend)
-            self._embedding._doc_ids = [str(p["product_id"]) for p in self._product_dicts]
-            self._embedding._embeddings = cached
-            self._embedding._is_fitted = True
+            self._memory_embedding = EmbeddingRetriever(self._embedding_backend)
+            self._memory_embedding._doc_ids = [str(p["product_id"]) for p in self._product_dicts]
+            self._memory_embedding._embeddings = cached
+            self._memory_embedding._is_fitted = True
             self._embedding_cache_hit = True
             logger.info("Loaded %d cached embeddings (%d-dim)", len(cached), cached.shape[1])
         except Exception as e:
@@ -355,7 +465,11 @@ class RetrievalService:
 
     def _save_cache(self) -> None:
         """Save computed embeddings to disk with metadata."""
-        if self._data_path is None or self._embedding is None or self._embedding._embeddings is None:
+        if (
+            self._data_path is None
+            or self._memory_embedding is None
+            or self._memory_embedding._embeddings is None
+        ):
             return
         if not isinstance(self._embedding_backend, SentenceTransformersBackend):
             return
@@ -368,7 +482,7 @@ class RetrievalService:
         meta_path = _cache_metadata_path(cache_path)
 
         data_hash = _compute_data_hash(self._data_path)
-        np.save(str(cache_path), self._embedding._embeddings)
+        np.save(str(cache_path), self._memory_embedding._embeddings)
         meta_path.write_text(json.dumps({
             "model_name": self._embedding_backend._model_name,
             "dim": dim,
@@ -381,7 +495,7 @@ class RetrievalService:
         logger.info("Embedding cache saved to %s", cache_path)
 
     @staticmethod
-    def _create_real_backend() -> EmbeddingBackend:
+    def _create_real_backend(model_name: str) -> EmbeddingBackend:
         """Create a real SentenceTransformers backend.
 
         Returns:
@@ -392,12 +506,12 @@ class RetrievalService:
         """
         try:
             backend = SentenceTransformersBackend(
-                model_name="all-MiniLM-L6-v2",
+                model_name=model_name,
                 batch_size=64,
                 normalize=True,
             )
             _ = backend.dim  # Force load
-            logger.info("Using real embedding: all-MiniLM-L6-v2 (384-dim)")
+            logger.info("Using real embedding: %s (%d-dim)", model_name, backend.dim)
             return backend
         except ImportError as e:
             raise RuntimeError(
@@ -483,12 +597,9 @@ class RetrievalService:
 
         elapsed_ms = (time.monotonic() - t0) * 1000
 
-        model_name = ""
-        emb_dim = 0
-        if self._embedding_backend is not None:
-            emb_dim = self._embedding_backend.dim
-            if isinstance(self._embedding_backend, SentenceTransformersBackend):
-                model_name = self._embedding_backend._model_name
+        semantic = self._require_semantic_retriever()
+        model_name = semantic.model_name
+        emb_dim = semantic.dim
 
         return RetrievalOutput(
             query=query,
@@ -498,6 +609,7 @@ class RetrievalService:
             elapsed_ms=round(elapsed_ms, 2),
             model_used=model_name,
             embedding_dim=emb_dim,
+            semantic_backend=self._semantic_backend,
         )
 
     # ------------------------------------------------------------------
@@ -532,8 +644,8 @@ class RetrievalService:
         self, query: str, top_k: int, candidate_ids: set[str],
     ) -> tuple[list[RetrievalResultItem], dict[str, float], dict[str, float]]:
         """Embedding semantic search."""
-        assert self._embedding is not None
-        raw = self._embedding.search(query, top_k * 3)
+        semantic = self._require_semantic_retriever()
+        raw = semantic.search(query, top_k * 3, candidate_ids)
         emb_scores: dict[str, float] = {}
         items: list[RetrievalResultItem] = []
         rank = 0
@@ -557,11 +669,11 @@ class RetrievalService:
     ) -> tuple[list[RetrievalResultItem], dict[str, float], dict[str, float]]:
         """Hybrid RRF: fuse BM25 + Embedding ranks."""
         assert self._bm25 is not None
-        assert self._embedding is not None
+        semantic = self._require_semantic_retriever()
 
         # Get raw results from both
         bm25_raw = self._bm25.search(query, top_k * 4)
-        emb_raw = self._embedding.search(query, top_k * 4)
+        emb_raw = semantic.search(query, top_k * 4, candidate_ids)
 
         # Filter to candidates
         bm25_filtered = {pid: s for pid, s in bm25_raw if pid in candidate_ids}
@@ -646,7 +758,9 @@ class RetrievalService:
         """
         if self._reranker is None:
             # Lazy init: CrossEncoder by default, Keyword for fake mode
-            if self._use_fake_embeddings:
+            if self._use_fake_embeddings or isinstance(
+                self._embedding_backend, FakeEmbeddingBackend
+            ):
                 self._reranker = KeywordReranker()
             else:
                 try:
@@ -746,28 +860,47 @@ class RetrievalService:
     @property
     def embedding_model_info(self) -> dict[str, Any]:
         """Information about the active embedding backend."""
-        if self._embedding_backend is None:
+        if self._semantic_retriever is None:
             return {"type": "none", "dim": 0}
+        embedding_type = "custom"
         if isinstance(self._embedding_backend, SentenceTransformersBackend):
-            return self._embedding_backend.model_info
-        return {"type": "fake", "dim": self._embedding_backend.dim}
+            embedding_type = "sentence-transformers"
+        elif isinstance(self._embedding_backend, FakeEmbeddingBackend):
+            embedding_type = "fake"
+        return {
+            "type": embedding_type,
+            "semantic_backend": self._semantic_retriever.backend_name,
+            "model_name": self._semantic_retriever.model_name,
+            "dim": self._semantic_retriever.dim,
+        }
 
     def status(self) -> dict[str, Any]:
         """Return comprehensive service status for /health endpoint.
 
         Returns a dict safe for API exposure (no local paths).
         """
-        emb_type = "none"
-        emb_model = "none"
-        emb_dim = 0
-        if self._embedding_backend is not None:
-            emb_dim = self._embedding_backend.dim
-            if isinstance(self._embedding_backend, SentenceTransformersBackend):
-                emb_type = "sentence-transformers"
-                emb_model = self._embedding_backend._model_name
-            elif isinstance(self._embedding_backend, FakeEmbeddingBackend):
-                emb_type = "fake"
-                emb_model = "FakeEmbeddingBackend"
+        semantic_status = SemanticBackendStatus(
+            backend=self._semantic_backend,
+            model="none",
+            dimension=0,
+            ready=False,
+            indexed_count=0,
+            expected_count=self.product_count,
+            detail="semantic retriever is not initialized",
+        )
+        if self._semantic_retriever is not None:
+            try:
+                semantic_status = self._semantic_retriever.status(self._product_index.keys())
+            except Exception as exc:
+                semantic_status = SemanticBackendStatus(
+                    backend=self._semantic_retriever.backend_name,
+                    model=self._semantic_retriever.model_name,
+                    dimension=self._semantic_retriever.dim,
+                    ready=False,
+                    indexed_count=0,
+                    expected_count=self.product_count,
+                    detail=f"readiness check failed: {type(exc).__name__}",
+                )
 
         reranker_name = "none (lazy, not yet loaded)"
         if self._reranker is not None:
@@ -775,9 +908,14 @@ class RetrievalService:
 
         return {
             "retrieval_service_ready": self._is_initialized,
-            "embedding_backend": emb_type,
-            "embedding_model": emb_model,
-            "embedding_dim": emb_dim,
+            "semantic_backend": semantic_status.backend,
+            "embedding_backend": semantic_status.backend,
+            "embedding_model": semantic_status.model,
+            "embedding_dim": semantic_status.dimension,
+            "semantic_index_ready": semantic_status.ready,
+            "semantic_indexed_count": semantic_status.indexed_count,
+            "semantic_expected_count": semantic_status.expected_count,
+            "semantic_status_detail": semantic_status.detail,
             "reranker_backend": reranker_name,
             "product_count": self.product_count,
             "embedding_cache_hit": self._embedding_cache_hit,

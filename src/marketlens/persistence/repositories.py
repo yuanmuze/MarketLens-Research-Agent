@@ -7,9 +7,11 @@ of writing raw SQL or ORM queries.
 
 from __future__ import annotations
 
+from collections.abc import Collection
 from datetime import datetime, timezone
 from typing import Any
 
+import numpy as np
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -206,6 +208,12 @@ class AgentRunRepository:
 class ProductEmbeddingRepository:
     """pgvector embedding storage + cosine search."""
 
+    # pgvector text/binary round-trips can perturb the least-significant bits of
+    # float32 values. These tolerances are deliberately below a meaningful model
+    # vector change while accepting that serialization noise.
+    _COMPARE_RTOL = 1e-6
+    _COMPARE_ATOL = 1e-7
+
     def __init__(self, session: Session) -> None:
         """Initialize with a SQLAlchemy session."""
         self._session = session
@@ -225,16 +233,21 @@ class ProductEmbeddingRepository:
             raise ValueError(
                 f"product_ids ({len(product_ids)}) and embeddings ({len(embeddings)}) length mismatch"
             )
+        prepared: list[np.ndarray] = []
         for emb in embeddings:
-            if len(emb) != dim:
+            incoming = np.asarray(emb, dtype=np.float32)
+            if incoming.ndim != 1 or incoming.shape[0] != dim:
                 raise ValueError(
                     f"Embedding dimension {len(emb)} != expected {dim}"
                 )
+            if not np.isfinite(incoming).all():
+                raise ValueError("Embedding values must all be finite")
+            prepared.append(incoming)
 
         inserted = 0
         updated = 0
         unchanged = 0
-        for pid, emb in zip(product_ids, embeddings):
+        for pid, emb, incoming in zip(product_ids, embeddings, prepared):
             existing = self._session.query(ProductEmbeddingRecord).filter_by(
                 product_id=pid, model_name=model_name
             ).first()
@@ -247,7 +260,18 @@ class ProductEmbeddingRepository:
                 ))
                 inserted += 1
             else:
-                if existing.embedding != emb or existing.dim != dim:
+                stored = np.asarray(existing.embedding, dtype=np.float32)
+                same_values = (
+                    stored.shape == incoming.shape
+                    and np.isfinite(stored).all()
+                    and np.allclose(
+                        stored,
+                        incoming,
+                        rtol=self._COMPARE_RTOL,
+                        atol=self._COMPARE_ATOL,
+                    )
+                )
+                if not same_values or existing.dim != dim:
                     existing.embedding = emb
                     existing.dim = dim
                     updated += 1
@@ -268,19 +292,49 @@ class ProductEmbeddingRepository:
         query_embedding: list[float],
         top_k: int = 20,
         model_name: str | None = None,
+        candidate_ids: Collection[str] | None = None,
     ) -> list[tuple[str, float]]:
         """Cosine similarity top-k search (1 - cosine distance)."""
+        if candidate_ids is not None and not candidate_ids:
+            return []
         q = self._session.query(
             ProductEmbeddingRecord.product_id,
             (1.0 - ProductEmbeddingRecord.embedding.cosine_distance(query_embedding)).label("similarity"),
         )
         if model_name:
             q = q.filter(ProductEmbeddingRecord.model_name == model_name)
+        if candidate_ids is not None:
+            q = q.filter(ProductEmbeddingRecord.product_id.in_(set(candidate_ids)))
         q = q.order_by(
-            ProductEmbeddingRecord.embedding.cosine_distance(query_embedding)
+            ProductEmbeddingRecord.embedding.cosine_distance(query_embedding),
+            ProductEmbeddingRecord.product_id.asc(),
         ).limit(top_k)
 
         return [(pid, float(sim)) for pid, sim in q.all()]
+
+    def index_status(
+        self,
+        model_name: str,
+        expected_product_ids: Collection[str],
+    ) -> dict[str, Any]:
+        """Return coverage and dimensions for one model and catalog."""
+        expected = set(expected_product_ids)
+        if not expected:
+            return {"indexed_count": 0, "expected_count": 0, "dimensions": set()}
+        rows = self._session.query(
+            ProductEmbeddingRecord.product_id,
+            ProductEmbeddingRecord.dim,
+        ).filter(
+            ProductEmbeddingRecord.model_name == model_name,
+            ProductEmbeddingRecord.product_id.in_(expected),
+        ).all()
+        indexed_ids = {str(pid) for pid, _dim in rows}
+        return {
+            "indexed_count": len(indexed_ids),
+            "expected_count": len(expected),
+            "dimensions": {int(dim) for _pid, dim in rows},
+            "missing_count": len(expected - indexed_ids),
+        }
 
 
 class FeedbackRepository:

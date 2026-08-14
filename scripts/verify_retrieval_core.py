@@ -58,7 +58,8 @@ def main() -> None:
     logger.info("Status: %s", json.dumps(status, indent=2))
 
     # Embedding checks
-    if status["embedding_backend"] == "fake":
+    model_info = service.embedding_model_info
+    if model_info["type"] == "fake":
         fail("Embedding backend is FAKE — real model required")
     if status["embedding_dim"] != 384:
         fail(f"Expected dim=384, got {status['embedding_dim']}")
@@ -66,8 +67,8 @@ def main() -> None:
         fail(f"Expected 2000 products, got {status['product_count']}")
 
     # Verify embedding matrix shape
-    assert service._embedding is not None
-    emb = service._embedding._embeddings
+    assert service._memory_embedding is not None
+    emb = service._memory_embedding._embeddings
     assert emb is not None
     assert emb.shape[0] == 2000, f"Embedding rows: {emb.shape[0]}"
     assert emb.shape[1] == 384, f"Embedding dim: {emb.shape[1]}"

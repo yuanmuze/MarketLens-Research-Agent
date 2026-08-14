@@ -113,3 +113,12 @@ def init_db() -> None:
 def drop_db() -> None:
     """Drop all tables (for testing only)."""
     Base.metadata.drop_all(bind=get_engine())
+
+
+def dispose_db() -> None:
+    """Dispose API database connections during application shutdown."""
+    global _engine, _SessionLocal
+    if _engine is not None:
+        _engine.dispose()
+    _engine = None
+    _SessionLocal = None
