@@ -175,7 +175,10 @@ class AgentOrchestrator:
                     })
 
         # --- Evidence verification ---
-        recommendations = _build_recommendations(tool_results_for_evidence, final_text)
+        recommendations = _build_recommendations(
+            tool_results_for_evidence,
+            final_text,
+        )[: request.max_results]
 
         # Collect all evidence refs
         all_evidence: list[EvidenceRef] = []

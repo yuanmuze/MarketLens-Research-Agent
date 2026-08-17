@@ -1,7 +1,7 @@
 """Typed agent tools — search, details, compare.
 
-Reuses Phase 3 RetrievalService for actual search. All tool params
-are validated by Pydantic models before execution.
+Catalog access is delegated to ``RetrievalService``. Tool parameters are
+validated by Pydantic models before execution.
 """
 
 from __future__ import annotations
@@ -270,47 +270,11 @@ class AgentTools:
             raise ValueError(f"Unknown tool: {tool_name}")
 
 
-# ---------------------------------------------------------------------------
-# Legacy Phase 2 compatibility (keep old graph.py working)
-# ---------------------------------------------------------------------------
+def disabled_web_search(query: str) -> str:
+    """Return an explicit offline response for the research workflow.
 
-def create_catalog_search_tool(catalog: Any, retriever: Any = None) -> Any:
-    """Legacy catalog search tool for old graph.py (Phase 2)."""
-    from langchain_core.tools import tool
-
-    from marketlens.models import SearchQuery
-
-    @tool(description="Search the product catalog by keyword query.")
-    def search_catalog(query: str, top_k: int = 10) -> str:
-        if retriever is None:
-            return "Catalog retriever not available."
-        try:
-            sq = SearchQuery(text=query, top_k=min(top_k, 50))
-            results = retriever.search(sq)
-        except Exception as e:
-            return f"Error searching catalog: {e}"
-        if not results:
-            return "No products found."
-        lines = [f"Found {len(results)} products for: {query}", ""]
-        for r in results:
-            p = r.product
-            lines.append(
-                f"- [{p.product_id}] {p.title} | {p.brand} | "
-                f"${p.price:.2f} | {p.rating}/5 | Score: {r.score:.3f}"
-            )
-        return "\n".join(lines)
-
-    return search_catalog
-
-
-def create_web_search_tool() -> Any:
-    """Legacy web search tool for old graph.py (Phase 2)."""
-    from langchain_core.tools import tool
-
-    @tool(description="Search the web for supplementary product information.")
-    def web_search(query: str) -> str:
-        return (
-            "[Web search disabled] No TAVILY_API_KEY configured. "
-            "Using catalog data only."
-        )
-    return web_search
+    MarketLens does not issue web-search requests. This boundary lets the
+    workflow report missing external evidence without a provider SDK.
+    """
+    del query
+    return "[Web search disabled] Using catalog data only."

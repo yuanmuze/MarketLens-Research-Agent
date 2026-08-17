@@ -17,10 +17,7 @@ from langgraph.graph.state import CompiledStateGraph
 
 from marketlens.agent.fake_llm import FakeLLM
 from marketlens.agent.state import AgentInputState, AgentState
-from marketlens.agent.tools import (
-    create_catalog_search_tool,
-    create_web_search_tool,
-)
+from marketlens.agent.tools import disabled_web_search
 from marketlens.catalog import ProductCatalog
 from marketlens.models import (
     ComparisonItem,
@@ -59,11 +56,6 @@ def build_research_graph(
         retriever = None  # Empty catalog, no retrieval possible
     if use_fake_llm:
         llm = FakeLLM(catalog.get_all_products())
-
-    # Create tools (available for real LLM tool calling)
-    if retriever is not None:
-        _catalog_search = create_catalog_search_tool(catalog, retriever)
-    web_search = create_web_search_tool()
 
     # --- Node implementations ---
 
@@ -196,7 +188,7 @@ def build_research_graph(
         logger.info("[%s] optional_web_research", request_id)
 
         try:
-            web_result = web_search.invoke({"query": query})
+            web_result = disabled_web_search(query)
             tool_calls = state.get("tool_calls", 0) + 1
 
             elapsed = time.monotonic() - start_time

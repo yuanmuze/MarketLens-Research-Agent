@@ -405,9 +405,12 @@ class TestIdempotency:
         from marketlens.api.routes import _recorded_run
         req = AgentRequest(message="best headphones", mode="balanced", request_id="idem-001")
 
-        asyncio.run(_recorded_run(req, orch, tools, service._product_index))
+        first = asyncio.run(_recorded_run(req, orch, tools, service._product_index))
         # Second call with SAME request_id + same content → replay, no new record
-        asyncio.run(_recorded_run(req, orch, tools, service._product_index))
+        replay = asyncio.run(_recorded_run(req, orch, tools, service._product_index))
+
+        assert first.request_id == "idem-001"
+        assert replay.request_id == "idem-001"
 
         with session_scope() as s:
             repo = AgentRunRepository(s)

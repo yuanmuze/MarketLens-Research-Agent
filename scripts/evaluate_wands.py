@@ -10,7 +10,7 @@ Fixed parameters:
 
 Usage:
   uv run python scripts/evaluate_wands.py
-  uv run python scripts/evaluate_wands.py --resume   # skip completed queries
+  uv run python scripts/evaluate_wands.py --continue-existing
 """
 
 from __future__ import annotations
@@ -74,7 +74,7 @@ def evaluate_strategy(
     queries: list,
     qrels: dict[str, dict[str, int]],
     output_path: Path,
-    resume: bool = False,
+    continue_existing: bool = False,
 ) -> list[dict]:
     """Run one strategy on all queries, writing results as JSONL.
 
@@ -84,23 +84,23 @@ def evaluate_strategy(
         queries: WANDS query list.
         qrels: Query relevance labels.
         output_path: Path to write JSONL runs file.
-        resume: Skip queries already in output_path.
+        continue_existing: Skip queries already in output_path.
 
     Returns:
         List of per-query result dicts for metric computation.
     """
-    # Check resume
+    # Load completed query IDs when continuing an interrupted run.
     completed_ids: set[str] = set()
-    if resume and output_path.exists():
+    if continue_existing and output_path.exists():
         with open(output_path, encoding="utf-8") as f:
             for line in f:
                 try:
                     completed_ids.add(json.loads(line)["query_id"])
                 except (json.JSONDecodeError, KeyError):
                     pass
-        logger.info("Resume: %d queries already completed", len(completed_ids))
+        logger.info("Continuing with %d completed queries", len(completed_ids))
 
-    mode = "a" if resume else "w"
+    mode = "a" if continue_existing else "w"
     fh = open(output_path, mode, encoding="utf-8")  # noqa: SIM115
 
     query_results: list[dict] = []
@@ -206,7 +206,11 @@ def evaluate_strategy(
 def main() -> None:
     """Run WANDS benchmark evaluation across retrieval strategies."""
     parser = argparse.ArgumentParser(description="Evaluate strategies on WANDS")
-    parser.add_argument("--resume", action="store_true", help="Resume from existing output files")
+    parser.add_argument(
+        "--continue-existing",
+        action="store_true",
+        help="Skip query IDs already present in output files",
+    )
     parser.add_argument("--strategy", choices=STRATEGIES, default=None, help="Run single strategy only")
     parser.add_argument("--fake-embeddings", action="store_true", help="Use fake embeddings (fast, for testing)")
     args = parser.parse_args()
@@ -257,7 +261,7 @@ def main() -> None:
         runs_path = OUTPUT_DIR / f"runs_{strategy}.jsonl"
         qr = evaluate_strategy(
             service, strategy, wands_queries, qrels,
-            output_path=runs_path, resume=args.resume,
+            output_path=runs_path, continue_existing=args.continue_existing,
         )
         all_query_results[strategy] = qr
 
