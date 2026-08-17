@@ -119,7 +119,7 @@ def validate_file(path: Path, expected: EscFile) -> dict[str, object]:
 
 
 def download_file(destination: Path, expected: EscFile) -> dict[str, object]:
-    """Resume into `.part`, validate, then atomically publish one file."""
+    """Continue a partial download, validate it, then publish atomically."""
     destination.parent.mkdir(parents=True, exist_ok=True)
     if destination.exists():
         logger.info("Validating existing final file: %s", destination)
@@ -141,7 +141,7 @@ def download_file(destination: Path, expected: EscFile) -> dict[str, object]:
         response.raise_for_status()
         if offset and response.status_code != requests.codes.partial:
             raise RuntimeError(
-                f"{expected.name}: server ignored Range resume; preserving {part}"
+                f"{expected.name}: server ignored the Range request; preserving {part}"
             )
         content_type = response.headers.get("Content-Type", "")
         if "text/html" in content_type.lower():

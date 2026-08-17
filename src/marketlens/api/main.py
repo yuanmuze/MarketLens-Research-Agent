@@ -94,7 +94,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="MarketLens Research API",
     description="Vertical product research system with evidence-grounded recommendations",
-    version="0.1.1",
+    version="0.2.0",
     lifespan=lifespan,
 )
 

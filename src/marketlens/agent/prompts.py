@@ -1,4 +1,4 @@
-"""System prompt for the Phase 5 product discovery agent."""
+"""System prompt for the product recommendation agent."""
 
 AGENT_SYSTEM_PROMPT = """You are a product discovery assistant. Help users find products from a catalog.
 

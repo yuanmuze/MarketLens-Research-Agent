@@ -1,64 +1,59 @@
-# MarketLens API image (Python 3.12, non-root).
-FROM python:3.12-slim
+# syntax=docker/dockerfile:1.7
+FROM ghcr.io/astral-sh/uv:0.12.3 AS uv
 
-# Non-root user for security.
-RUN useradd --create-home --shell /bin/bash appuser
-
+FROM python:3.12-slim AS builder
 WORKDIR /app
+COPY --from=uv /uv /bin/uv
 
 ARG EMBEDDING_MODEL_REVISION=1110a243fdf4706b3f48f1d95db1a4f5529b4d41
 ARG RERANKER_MODEL_REVISION=233902d25c440f23af6f7d6e94d2946bac0bee0a
-ENV HF_HOME=/opt/huggingface
+ENV HF_HOME=/opt/huggingface \
+    HF_HUB_DISABLE_TELEMETRY=1 \
+    UV_LINK_MODE=copy \
+    VIRTUAL_ENV=/app/.venv \
+    PATH="/app/.venv/bin:$PATH"
 
-# Keep dependency layers tied to dependency metadata, not application source.
+# Resolve runtime packages exclusively from the committed lockfile. The
+# embeddings extra pins CPU-only PyTorch through the official index declared in
+# pyproject.toml, avoiding CUDA dependencies in the API image.
 COPY pyproject.toml uv.lock ./
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-dev --extra embeddings --no-install-project
 
-# Install runtime dependencies directly (avoids building the project wheel,
-# which references the tests/ directory excluded from the image).
-RUN --mount=type=cache,target=/root/.cache/pip \
-    pip install \
-    fastapi==0.141.1 uvicorn==0.34.3 pydantic==2.11.5 pydantic-settings==2.14.2 \
-    sqlalchemy==2.0.41 alembic==1.19.1 psycopg2-binary==2.9.12 pgvector==0.5.0 \
-    langchain-core==1.4.8 langchain==1.3.9 langgraph==1.2.9 httpx==0.28.1 \
-    numpy==2.3.0
-
-# PyPI's Linux torch 2.13.0 wheel pulls the CUDA 13 dependency family. Install
-# the same upstream release from PyTorch's official CPU wheel index first.
-RUN --mount=type=cache,target=/root/.cache/pip \
-    pip install torch==2.13.0+cpu \
-    --index-url https://download.pytorch.org/whl/cpu
-
-RUN --mount=type=cache,target=/root/.cache/pip \
-    pip install sentence-transformers==5.7.0
-
-# Freeze the exact public model snapshots used by the existing 384-dim cache
-# and quality reranker. Only PyTorch runtime files are included; the repositories
-# also contain unused ONNX, OpenVINO, TensorFlow, Rust, and Flax weights.
-RUN python -c "from huggingface_hub import snapshot_download; repo='sentence-transformers/all-MiniLM-L6-v2'; rev='${EMBEDDING_MODEL_REVISION}'; print(f'Downloading {repo}@{rev} to {__import__(\"os\").environ[\"HF_HOME\"]}', flush=True); path=snapshot_download(repo_id=repo, revision=rev, allow_patterns=['config.json','config_sentence_transformers.json','modules.json','sentence_bert_config.json','special_tokens_map.json','tokenizer.json','tokenizer_config.json','vocab.txt','model.safetensors','1_Pooling/config.json']); print(f'Completed {repo}: {path}', flush=True)" \
+# Cache only the PyTorch model artifacts used by the supported retrieval path.
+RUN python -c "from huggingface_hub import snapshot_download; repo='sentence-transformers/all-MiniLM-L6-v2'; rev='${EMBEDDING_MODEL_REVISION}'; snapshot_download(repo_id=repo, revision=rev, allow_patterns=['config.json','config_sentence_transformers.json','modules.json','sentence_bert_config.json','special_tokens_map.json','tokenizer.json','tokenizer_config.json','vocab.txt','model.safetensors','1_Pooling/config.json'])" \
     && mkdir -p /opt/huggingface/hub/models--sentence-transformers--all-MiniLM-L6-v2/refs \
-    && printf '%s' "$EMBEDDING_MODEL_REVISION" > /opt/huggingface/hub/models--sentence-transformers--all-MiniLM-L6-v2/refs/main \
-    && chown -R appuser:appuser /opt/huggingface
+    && printf '%s' "$EMBEDDING_MODEL_REVISION" > /opt/huggingface/hub/models--sentence-transformers--all-MiniLM-L6-v2/refs/main
 
-RUN python -c "from huggingface_hub import snapshot_download; repo='cross-encoder/ms-marco-MiniLM-L-6-v2'; rev='${RERANKER_MODEL_REVISION}'; print(f'Downloading {repo}@{rev} to {__import__(\"os\").environ[\"HF_HOME\"]}', flush=True); path=snapshot_download(repo_id=repo, revision=rev, allow_patterns=['config.json','special_tokens_map.json','tokenizer.json','tokenizer_config.json','vocab.txt','model.safetensors']); print(f'Completed {repo}: {path}', flush=True)" \
+RUN python -c "from huggingface_hub import snapshot_download; repo='cross-encoder/ms-marco-MiniLM-L-6-v2'; rev='${RERANKER_MODEL_REVISION}'; snapshot_download(repo_id=repo, revision=rev, allow_patterns=['config.json','special_tokens_map.json','tokenizer.json','tokenizer_config.json','vocab.txt','model.safetensors'])" \
     && mkdir -p /opt/huggingface/hub/models--cross-encoder--ms-marco-MiniLM-L-6-v2/refs \
-    && printf '%s' "$RERANKER_MODEL_REVISION" > /opt/huggingface/hub/models--cross-encoder--ms-marco-MiniLM-L-6-v2/refs/main \
-    && chown -R appuser:appuser /opt/huggingface
+    && printf '%s' "$RERANKER_MODEL_REVISION" > /opt/huggingface/hub/models--cross-encoder--ms-marco-MiniLM-L-6-v2/refs/main
 
-# Copy frequently changing application source only after dependencies and models.
+# Install the frequently changing application only after dependencies and model
+# snapshots, so source edits do not invalidate those expensive layers.
+COPY README.md ./
 COPY src/ src/
-COPY alembic/ alembic/
-COPY alembic.ini ./
-COPY scripts/ scripts/
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-dev --extra embeddings --no-editable
 
-# marketlens package lives under src/
-ENV PYTHONPATH=/app/src
-ENV HF_HUB_OFFLINE=1
-ENV TRANSFORMERS_OFFLINE=1
-ENV HF_HUB_DISABLE_TELEMETRY=1
+FROM python:3.12-slim
+RUN useradd --create-home --shell /bin/bash appuser
+WORKDIR /app
 
-# Switch to non-root
+COPY --from=builder --chown=appuser:appuser /app/.venv /app/.venv
+COPY --from=builder --chown=appuser:appuser /opt/huggingface /opt/huggingface
+COPY --chown=appuser:appuser alembic/ alembic/
+COPY --chown=appuser:appuser alembic.ini ./
+COPY --chown=appuser:appuser scripts/ scripts/
+
+ENV HF_HOME=/opt/huggingface \
+    HF_HUB_OFFLINE=1 \
+    TRANSFORMERS_OFFLINE=1 \
+    HF_HUB_DISABLE_TELEMETRY=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    VIRTUAL_ENV=/app/.venv \
+    PATH="/app/.venv/bin:$PATH"
+
 USER appuser
-
 EXPOSE 8000
-
 CMD ["uvicorn", "marketlens.api.main:app", "--host", "0.0.0.0", "--port", "8000"]

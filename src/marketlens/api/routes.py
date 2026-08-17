@@ -170,7 +170,7 @@ async def health_check() -> HealthResponse:
 
     return HealthResponse(
         status="ok",
-        version="0.1.1",
+        version="0.2.0",
         catalog_size=catalog_size,
         **extra,
     )
@@ -504,7 +504,7 @@ async def get_job_report(job_id: str) -> ResearchReportResponse:
 
 
 # ---------------------------------------------------------------------------
-# POST /agent/recommend  (Phase 5 Agent)
+# POST /agent/recommend
 # ---------------------------------------------------------------------------
 
 class _NoOpLLM(LLMClient):
@@ -526,7 +526,7 @@ def _build_llm_client() -> LLMClient:
                     "content": "",
                     "tool_calls": [
                         {
-                            "id": "phase8_fake_search",
+                            "id": "offline_fake_search",
                             "type": "function",
                             "function": {
                                 "name": "search_catalog",
@@ -545,7 +545,7 @@ def _build_llm_client() -> LLMClient:
                     )
                 },
             ],
-            model_name="phase8-deterministic-fake",
+            model_name="marketlens-offline-deterministic",
         )
     api_key = os.environ.get("MARKETLENS_AGENT_API_KEY", "")
     base_url = os.environ.get("MARKETLENS_AGENT_BASE_URL", "https://api.openai.com/v1")
@@ -654,6 +654,10 @@ async def _recorded_run(
         except Exception:
             logger.exception("Failed to record agent failure")
         raise
+
+    # The API idempotency key is the public request identifier. Direct
+    # orchestrator calls may use an independently generated trace identifier.
+    response.request_id = request_id
 
     # 3. Update the SAME record to final status + write tool calls (short tx B)
     try:
@@ -769,7 +773,7 @@ def _mark_run_failed(run_id: int | None, error: Exception) -> None:
 
 
 # ---------------------------------------------------------------------------
-# POST /feedback  (Phase 7 minimal feedback loop)
+# POST /feedback
 # ---------------------------------------------------------------------------
 @router.post("/feedback", response_model=FeedbackResponse, status_code=201)
 async def submit_feedback(request: FeedbackRequest) -> FeedbackResponse:

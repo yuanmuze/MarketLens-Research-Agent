@@ -140,7 +140,7 @@ class TestProductEmbeddingRepository:
         products = [
             Product(
                 product_id=f"P8-{index:04d}",
-                title=f"Phase 8 product {index}",
+                title=f"Idempotency product {index}",
                 category=ProductCategory.OTHER,
             )
             for index in range(2000)
@@ -154,14 +154,14 @@ class TestProductEmbeddingRepository:
         ]
         repo = ProductEmbeddingRepository(session)
 
-        first = repo.upsert_many(product_ids, embeddings, "phase8-idempotency", 384)
+        first = repo.upsert_many(product_ids, embeddings, "repository-idempotency", 384)
         session.commit()
-        second = repo.upsert_many(product_ids, embeddings, "phase8-idempotency", 384)
+        second = repo.upsert_many(product_ids, embeddings, "repository-idempotency", 384)
         session.commit()
 
         assert first == {"inserted": 2000, "updated": 0, "unchanged": 0}
         assert second == {"inserted": 0, "updated": 0, "unchanged": 2000}
-        assert repo.count("phase8-idempotency") == 2000
+        assert repo.count("repository-idempotency") == 2000
 
     def test_dimension_mismatch_raises(self, session) -> None:
         """Embedding with wrong dim fails clearly."""

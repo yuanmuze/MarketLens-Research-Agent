@@ -1,0 +1,135 @@
+{
+  "schema_version": 1,
+  "manifest_revision": 2,
+  "benchmark": "wands",
+  "frozen_at": "2026-08-14T05:29:11.6702074Z",
+  "baseline_git_sha": "d5e69ae24d6073be7b9b9fcc51b045108c769ad4",
+  "working_tree_dirty": true,
+  "freeze_notes": [
+    "Revision 2 was frozen before any test-split run.",
+    "A validation-only smoke run exposed optional Hugging Face HEAD requests; offline model loading was made explicit and the config hash was revised."
+  ],
+  "config_hash": "57264bf20d04c8036b9bd623f7e6cb1af5cd98c4cfc19e0d6e3d6c75ac6dd99f",
+  "frozen_config": {
+    "seed": 42,
+    "top_k": 10,
+    "candidate_k": 50,
+    "wands": {
+      "source": "Wayfair WANDS (Wayfair ANnotation Dataset for Search)",
+      "repository": "https://github.com/wayfair/WANDS",
+      "commit": "3b74dcf4ba29ab8ff3e6a50b5b09fc627cb882b5",
+      "license": "MIT License",
+      "downloaded_at": "2026-08-12T07:00:05.794020+00:00",
+      "product_count": 42994,
+      "query_count": 480,
+      "split": {
+        "method": "lexicographically sort query_id, then random.Random(42).shuffle",
+        "train": 288,
+        "validation": 96,
+        "test": 96
+      },
+      "split_hash": "75dde15eec0c8c9864c7e0435ca2525408913956c47fdb1249c7a474ee2fb1ad",
+      "files": {
+        "product.csv": {
+          "sha256": "d993926254572e6eba96c8fd87cc549a17fb91ad3748308036eee4cf92b10ac6",
+          "size_bytes": 90621131
+        },
+        "query.csv": {
+          "sha256": "63b61660560fecc33ec490804c7e2b81402ee3e7c31a9cbb5e03736639f68e95",
+          "size_bytes": 19942
+        },
+        "label.csv": {
+          "sha256": "c11fe81ad62f17f56f316b0ec9630ebe8fbe1393578cb0ca4f05c17253a180ef",
+          "size_bytes": 5736234
+        }
+      },
+      "label_policy": "qrels are evaluation-only and are loaded after retrievers initialize and warm up",
+      "historical_holdout_limitation": "An earlier evaluation used all 480 queries before this split existed; this benchmark does not tune on test, but the test split is not historically untouched"
+    },
+    "retrieval": {
+      "strategies": [
+        "popularity",
+        "bm25",
+        "semantic_memory",
+        "semantic_pgvector",
+        "hybrid_memory",
+        "hybrid_pgvector",
+        "quality_pgvector"
+      ],
+      "bm25": {
+        "k1": 1.5,
+        "b": 0.75
+      },
+      "rrf": {
+        "k": 60,
+        "bm25_weight": 0.5,
+        "embedding_weight": 0.5
+      },
+      "embedding": {
+        "model": "sentence-transformers/all-MiniLM-L6-v2",
+        "revision": "1110a243fdf4706b3f48f1d95db1a4f5529b4d41",
+        "dimension": 384,
+        "dtype": "float32",
+        "cache_file": "data/cache/embeddings_fea3dff39a7bb8cc.npy",
+        "cache_size_bytes": 66038912,
+        "cache_metadata_source_hash_prefix": "d993926254572e6e"
+      },
+      "reranker": {
+        "model": "cross-encoder/ms-marco-MiniLM-L-6-v2",
+        "revision": "233902d25c440f23af6f7d6e94d2946bac0bee0a"
+      },
+      "pgvector": {
+        "distance": "cosine",
+        "extension_version": "0.8.6",
+        "database": "marketlens_wands_test",
+        "requires_exact_model_and_dimension_coverage": true,
+        "fallback_to_memory": false
+      }
+    },
+    "agent": {
+      "max_steps": 6,
+      "max_tool_calls": 8,
+      "evidence_verification_retry_once": true,
+      "real_llm_authorized": false,
+      "fake_llm_allowed_for_integration_only": true,
+      "quality_claim_policy": "real-LLM strategies are reported as not run, never as zero-scored or fake quality"
+    },
+    "evaluation": {
+      "metrics": [
+        "Recall@10",
+        "MRR@10 relevant",
+        "MRR exact",
+        "nDCG@10",
+        "latency p50",
+        "latency p95",
+        "failure counts"
+      ],
+      "warmup_split": "train",
+      "parameter_selection_splits": [
+        "train",
+        "validation"
+      ],
+      "final_split": "test",
+      "final_test_policy": "run once after manifest freeze; preserve first output and disclose any bug-driven rerun",
+      "tokens_and_cost": "not measured because no real LLM is authorized"
+    },
+    "runtime": {
+      "host_python": "3.12.13",
+      "container_python": "3.12.14",
+      "offline_model_loading": true,
+      "docker_engine": "29.7.2",
+      "docker_compose": "5.3.1",
+      "docker_cpus": 24,
+      "docker_memory_bytes": 8168058880,
+      "api_image": "sha256:8a4ade30d51e0d8a9ff86f7f46a84b3d5051b638c83f4ece3d1753089e3cf8b5",
+      "api_image_size_bytes": 612762481,
+      "api_user": "appuser",
+      "torch": "2.13.0+cpu",
+      "cuda": null,
+      "sentence_transformers": "5.7.0",
+      "sqlalchemy": "2.0.41",
+      "postgresql": "16.14",
+      "database_collation_note": "The pre-existing marketlens_test reports a glibc collation mismatch; the isolated WANDS test database is created from template0 with locale C"
+    }
+  }
+}

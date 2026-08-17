@@ -2,7 +2,7 @@ name: MarketLens CI
 
 on:
   push:
-    branches: [main, "feat/*"]
+    branches: [main]
   pull_request:
     branches: [main]
 
@@ -42,13 +42,16 @@ jobs:
           key: ${{ runner.os }}-uv-${{ hashFiles('uv.lock') }}
 
       - name: Install dependencies
-        run: uv sync --locked --extra dev --extra db --extra embeddings
+        run: uv sync --locked --group dev --extra data --extra embeddings --extra llm
 
       - name: Ruff
         run: uv run ruff check .
 
       - name: Mypy
         run: uv run mypy src scripts
+
+      - name: Build wheel
+        run: uv build
 
       - name: Run migrations
         env:

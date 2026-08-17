@@ -1,4 +1,4 @@
-"""Pydantic models for Phase 5 agent request, tools, and response."""
+"""Pydantic models for recommendation requests, tools, and responses."""
 
 from __future__ import annotations
 

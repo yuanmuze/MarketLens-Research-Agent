@@ -1,49 +1,40 @@
 [project]
 name = "marketlens-research-agent"
-version = "0.1.1"
-description = "MarketLens Research Agent — vertical product research system for AI/electronics with evidence-grounded recommendations."
+version = "0.2.0"
+description = "Offline-first product research API with hybrid retrieval, PostgreSQL/pgvector, and evidence-validated agent workflows."
 authors = [{ name = "yuanmuze" }]
 readme = "README.md"
-license = { text = "MIT" }
+license = "MIT"
 requires-python = ">=3.12"
 dependencies = [
-    "langgraph>=0.5.4",
-    "langchain-community>=0.3.9",
-    "langchain-openai>=0.3.28",
-    "langchain-anthropic>=0.3.15",
-    "langchain-mcp-adapters>=0.1.6",
-    "langchain-deepseek>=0.1.2",
-    "langchain-tavily",
-    "langchain-groq>=0.2.4",
-    "openai>=1.99.2",
-    "tavily-python>=0.5.0",
-    "arxiv>=2.1.3",
-    "pymupdf>=1.25.3",
-    "xmltodict>=0.14.2",
-    "linkup-sdk>=0.2.3",
-    "duckduckgo-search>=3.0.0",
-    "exa-py>=1.8.8",
-    "requests>=2.32.3",
-    "beautifulsoup4==4.15.0",
-    "python-dotenv>=1.0.1",
-    "pytest",
-    "httpx>=0.24.0",
+    "alembic>=1.13",
     "fastapi>=0.115.0",
+    "langgraph>=0.5.4",
+    "numpy>=2.0",
+    "pgvector>=0.3.0",
+    "psycopg2-binary>=2.9",
+    "pydantic>=2.0",
+    "sqlalchemy>=2.0",
+    "typing-extensions>=4.0",
     "uvicorn>=0.30.0",
-    "markdownify>=0.11.6",
-    "azure-identity>=1.21.0",
-    "azure-search>=1.0.0b2",
-    "azure-search-documents>=11.5.2",
-    "rich>=13.0.0",
-    "langgraph-cli[inmem]>=0.3.1",
-    "langsmith>=0.3.37",
-    "langchain-google-vertexai>=2.0.25",
-    "langchain-google-genai>=2.1.5",
-    "ipykernel>=6.29.5",
-    "supabase>=2.15.3",
-    "mcp>=1.9.4",
-    "langchain-aws>=0.2.28",
-    "pandas>=2.3.1",
+]
+
+[project.optional-dependencies]
+data = ["datasets>=2.14.0", "pyarrow>=15.0", "requests>=2.32.3"]
+embeddings = [
+    "sentence-transformers>=2.2.0",
+    "torch==2.13.0+cpu",
+]
+llm = ["openai>=1.99.2"]
+
+[dependency-groups]
+dev = [
+    "httpx>=0.24.0",
+    "mypy>=1.11.1",
+    "pytest>=8.0",
+    "pytest-asyncio>=1.0",
+    "pytest-mock>=3.12.0",
+    "ruff==0.11.13",
 ]
 
 [project.urls]
@@ -51,88 +42,37 @@ Repository = "https://github.com/yuanmuze/MarketLens-Research-Agent"
 Issues = "https://github.com/yuanmuze/MarketLens-Research-Agent/issues"
 Documentation = "https://github.com/yuanmuze/MarketLens-Research-Agent/tree/main/docs"
 
-[project.optional-dependencies]
-dev = [
-    "datasets>=2.14.0",
-    "mypy>=1.11.1",
-    "pytest-mock>=3.12.0",
-    "ruff==0.11.13",
-]
-embeddings = ["sentence-transformers>=2.2.0"]
-data = ["datasets>=2.14.0"]
-db = ["sqlalchemy>=2.0", "alembic>=1.13", "psycopg2-binary>=2.9", "pgvector>=0.3.0"]
-
 [build-system]
 requires = ["setuptools>=73.0.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
-[tool.setuptools]
-packages = ["open_deep_research", "marketlens", "marketlens.retrieval", "marketlens.agent", "marketlens.agent.providers", "marketlens.api", "marketlens.evaluation", "marketlens.persistence", "legacy", "tests"]
-
-[tool.setuptools.package-dir]
-"open_deep_research" = "src/open_deep_research"
-"marketlens" = "src/marketlens"
-"marketlens.retrieval" = "src/marketlens/retrieval"
-"marketlens.agent" = "src/marketlens/agent"
-"marketlens.agent.providers" = "src/marketlens/agent/providers"
-"marketlens.api" = "src/marketlens/api"
-"marketlens.evaluation" = "src/marketlens/evaluation"
-"marketlens.persistence" = "src/marketlens/persistence"
-"legacy" = "src/legacy"
-"tests" = "tests"
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["marketlens*"]
+namespaces = false
 
 [tool.setuptools.package-data]
-"*" = ["py.typed"]
+marketlens = ["py.typed", "fixtures/*.json", "fixtures/*.jsonl"]
 
 [tool.ruff]
-lint.select = [
-    "E",    # pycodestyle
-    "F",    # pyflakes
-    "I",    # isort
-    "D",    # pydocstyle
-    "D401", # First line should be in imperative mood
-    "T201",
-    "UP",
-]
-lint.ignore = [
-    "UP006",
-    "UP007",
-    "UP035",
-    "D417",
-    "E501",
-]
-# Vendored/legacy upstream code is excluded from linting.
-# src/legacy/ and src/open_deep_research/ are from the original Open Deep
-# Research upstream (langchain-ai/open_deep_research), kept for reference only.
-exclude = [
-    "src/legacy",
-    "src/open_deep_research",
-    "src/security",
-    "tests/evaluators.py",
-    "tests/extract_langsmith_data.py",
-    "tests/pairwise_evaluation.py",
-    "tests/prompts.py",
-    "tests/run_evaluate.py",
-    "tests/supervisor_parallel_evaluation.py",
-]
+exclude = ["data", "dist"]
+lint.select = ["E", "F", "I", "D", "D401", "T201", "UP"]
+lint.ignore = ["UP006", "UP007", "UP035", "D417", "E501"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["D", "UP"]
 "src/marketlens/evaluation/benchmark.py" = ["T201"]
+"scripts/benchmark_api.py" = ["T201"]
 "scripts/demo_retrieval.py" = ["T201", "D"]
-"scripts/load_test.py" = ["T201"]
-"scripts/load_test_phase8.py" = ["T201"]
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"
 
 [tool.pytest.ini_options]
-# Only collect first-party MarketLens tests. Legacy upstream tests
-# (src/legacy/tests/) require API keys (LangSmith + LLM) and are excluded.
 testpaths = ["tests"]
 addopts = "-ra"
 markers = [
-    "postgres: PostgreSQL integration tests (require a running test database)",
+    "postgres: PostgreSQL integration tests (require a dedicated database whose name contains 'test')",
 ]
 
 [tool.mypy]
@@ -140,8 +80,11 @@ ignore_missing_imports = true
 follow_imports = "skip"
 python_version = "3.12"
 files = ["src/marketlens", "scripts"]
-exclude = [
-    "src/legacy",
-    "src/open_deep_research",
-    "src/security",
-]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cpu" }

@@ -32,9 +32,9 @@ ENV/
 .env
 .claude/
 
-# Project-local uv cache used for reproducible Phase 8 tooling
-.uv-cache-phase8/
-.python-phase8/
+# Project-local tool caches
+.uv-cache*/
+.python-*/
 
 # IDE specific files
 .idea/

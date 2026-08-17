@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Smoke-test the Phase 5 agent with a real LLM (requires API key).
+"""Smoke-test the recommendation agent with an optional live provider.
 
 Without MARKETLENS_AGENT_API_KEY, this script exits with a clear
 message and does not attempt any network calls.

@@ -4,8 +4,8 @@
 .env
 .env.*
 .venv
-.uv-cache-phase8
-.python-phase8
+.uv-cache*
+.python-*
 .claude
 __pycache__
 *.pyc
