@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="MarketLens product research workspace" />
+    <title>MarketLens — Product intelligence workspace</title>
+    <link rel="stylesheet" href="/assets/app.css" />
+  </head>
+  <body>
+    <div class="ambient ambient-one"></div><div class="ambient ambient-two"></div>
+    <header class="topbar">
+      <a class="brand" href="/" aria-label="MarketLens home"><span class="brand-mark">M</span><span>Market<span class="brand-light">Lens</span></span></a>
+      <nav><a href="#workspace">Workspace</a><a href="#capabilities">Capabilities</a><a href="/docs" target="_blank" rel="noreferrer">API docs ↗</a></nav>
+      <div class="status-pill" id="api-status"><span></span> Checking API</div>
+    </header>
+
+    <main>
+      <section class="hero">
+        <div class="eyebrow">PRODUCT RESEARCH, ON DEMAND</div>
+        <h1>Make product decisions<br /><em>with evidence.</em></h1>
+        <p>Search a structured catalog, combine keyword and semantic retrieval, and receive evidence-backed recommendations in one focused workspace.</p>
+        <div class="hero-stats">
+          <div><strong id="catalog-count">—</strong><span>catalog products</span></div>
+          <div><strong>Hybrid RRF</strong><span>retrieval strategy</span></div>
+          <div><strong>Offline-first</strong><span>deterministic demo</span></div>
+        </div>
+      </section>
+
+      <section class="workspace" id="workspace">
+        <div class="panel search-panel">
+          <div class="panel-heading"><div><span class="section-kicker">01 / DISCOVER</span><h2>Find the right product</h2></div><span class="live-dot">Live catalog</span></div>
+          <form id="search-form">
+            <label class="search-box"><span>⌕</span><input id="search-query" value="wireless headphones" autocomplete="off" aria-label="Product search" /><button type="submit">Search</button></label>
+            <div class="filters">
+              <label>Strategy<select id="strategy"><option value="hybrid">Hybrid RRF</option><option value="bm25">BM25 keyword</option><option value="embedding">Semantic</option><option value="rerank">Quality rerank</option></select></label>
+              <label>Maximum price<input id="max-budget" type="number" min="0" placeholder="Any" /></label>
+              <label>Minimum rating<select id="min-rating"><option value="">Any</option><option value="4">4.0+</option><option value="4.5">4.5+</option></select></label>
+            </div>
+          </form>
+          <div class="result-meta" id="search-meta">Ready to search the local catalog.</div>
+          <div class="product-grid" id="results" aria-live="polite"></div>
+        </div>
+
+        <aside class="panel agent-panel">
+          <div class="panel-heading"><div><span class="section-kicker">02 / ADVISE</span><h2>Research assistant</h2></div><span class="agent-badge">Evidence mode</span></div>
+          <p class="agent-copy">Ask for a concise recommendation. The assistant searches the same catalog and shows its evidence trail.</p>
+          <form id="agent-form">
+            <textarea id="agent-message" rows="4">Recommend wireless headphones for commuting under 400 dollars</textarea>
+            <div class="agent-controls"><label>Mode<select id="agent-mode"><option value="balanced">Balanced</option><option value="fast">Fast</option><option value="quality">Quality</option></select></label><button type="submit" class="primary">Generate recommendation</button></div>
+          </form>
+          <div class="agent-result empty" id="agent-result"><div class="spark">✦</div><p>Your evidence-backed recommendation will appear here.</p></div>
+        </aside>
+      </section>
+
+      <section class="capabilities" id="capabilities">
+        <div><span class="section-kicker">HOW IT WORKS</span><h2>Structured retrieval.<br />Grounded guidance.</h2></div>
+        <div class="capability-grid"><article><span>01</span><h3>Hybrid discovery</h3><p>BM25 and vector retrieval are combined through reciprocal rank fusion.</p></article><article><span>02</span><h3>Verifiable results</h3><p>Price, brand, rating, and category constraints remain outside generated text.</p></article><article><span>03</span><h3>Bounded orchestration</h3><p>Typed tools and evidence checks keep recommendations connected to catalog data.</p></article></div>
+      </section>
+    </main>
+    <footer><span>MarketLens</span><span>Offline-first product intelligence</span><span id="footer-backend">Initializing backend…</span></footer>
+    <template id="product-template"><article class="product-card"><div class="product-top"><span class="product-rank"></span><span class="source-tag"></span></div><h3></h3><p class="brand-name"></p><div class="product-data"><span class="price"></span><span class="rating"></span></div><div class="score-row"><span>Retrieval score</span><strong></strong></div></article></template>
+    <script src="/assets/app.js"></script>
+  </body>
+</html>

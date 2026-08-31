@@ -52,7 +52,7 @@ include = ["marketlens*"]
 namespaces = false
 
 [tool.setuptools.package-data]
-marketlens = ["py.typed", "fixtures/*.json", "fixtures/*.jsonl"]
+marketlens = ["py.typed", "fixtures/*.json", "fixtures/*.jsonl", "web/*"]
 
 [tool.ruff]
 exclude = ["data", "dist"]
