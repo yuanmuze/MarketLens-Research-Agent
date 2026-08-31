@@ -101,6 +101,20 @@ def test_default_cors_allows_localhost_only() -> None:
     assert "access-control-allow-origin" not in denied.headers
 
 
+def test_demo_home_and_assets_are_served() -> None:
+    """The browser demo is available without a separate frontend server."""
+    client = TestClient(app)
+
+    home = client.get("/")
+    stylesheet = client.get("/assets/app.css")
+    script = client.get("/assets/app.js")
+
+    assert home.status_code == 200
+    assert "MarketLens — Product intelligence workspace" in home.text
+    assert stylesheet.status_code == 200
+    assert script.status_code == 200
+
+
 @pytest.mark.parametrize(
     ("variable", "value"),
     [

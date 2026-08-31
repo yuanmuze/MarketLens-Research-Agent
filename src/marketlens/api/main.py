@@ -9,7 +9,8 @@ from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from marketlens.api.database import dispose_db, init_db
 from marketlens.api.routes import init_catalog, mark_startup_unavailable, router
@@ -97,6 +98,15 @@ app = FastAPI(
     version="0.2.0",
     lifespan=lifespan,
 )
+
+_web_dir = Path(__file__).resolve().parent.parent / "web"
+app.mount("/assets", StaticFiles(directory=_web_dir), name="assets")
+
+
+@app.get("/", include_in_schema=False)
+async def demo_home() -> FileResponse:
+    """Serve the local MarketLens product demonstration page."""
+    return FileResponse(_web_dir / "index.html")
 
 # CORS is deliberately static for the process lifetime and fails closed when
 # environment configuration is invalid.
